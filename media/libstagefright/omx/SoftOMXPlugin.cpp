@@ -40,8 +40,7 @@ static const struct {
     { "OMX.google.amrnb.encoder", "amrnbenc", "audio_encoder.amrnb" },
     { "OMX.google.amrwb.decoder", "amrdec", "audio_decoder.amrwb" },
     { "OMX.google.amrwb.encoder", "amrwbenc", "audio_encoder.amrwb" },
-    { "OMX.google.h264.decoder", "cedar_h264dec", "video_decoder.avc" },
-    //{ "OMX.google.h264.decoder", "h264dec", "video_decoder.avc" },
+    { "OMX.google.h264.decoder", "h264dec", "video_decoder.avc" },
     { "OMX.google.h264.encoder", "h264enc", "video_encoder.avc" },
     { "OMX.google.g711.alaw.decoder", "g711dec", "audio_decoder.g711alaw" },
     { "OMX.google.g711.mlaw.decoder", "g711dec", "audio_decoder.g711mlaw" },
@@ -52,8 +51,10 @@ static const struct {
     { "OMX.google.mp3.decoder", "mp3dec", "audio_decoder.mp3" },
     { "OMX.google.vorbis.decoder", "vorbisdec", "audio_decoder.vorbis" },
     { "OMX.google.vpx.decoder", "vpxdec", "video_decoder.vpx" },
+    { "OMX.google.vpx.encoder", "vpxenc", "video_encoder.vpx" },
     { "OMX.google.raw.decoder", "rawdec", "audio_decoder.raw" },
     { "OMX.google.flac.encoder", "flacenc", "audio_encoder.flac" },
+    { "OMX.google.gsm.decoder", "gsmdec", "audio_decoder.gsm" },
 };
 
 static const size_t kNumComponents =

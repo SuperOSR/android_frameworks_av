@@ -27,19 +27,13 @@
 
 #include <utils/KeyedVector.h>
 #include <utils/String8.h>
-#include "mediaplayerinfo.h"
-
 
 class ANativeWindow;
 
 namespace android {
 
 class Surface;
-class ISurfaceTexture;
-
-//add by Bevis, for Dlna source detector
-#define DLNA_SOURCE_DETECTOR "com.softwinner.dlnasourcedetector"
-
+class IGraphicBufferProducer;
 
 enum media_event_type {
     MEDIA_NOP               = 0, // interface test message
@@ -51,7 +45,6 @@ enum media_event_type {
     MEDIA_TIMED_TEXT        = 99,
     MEDIA_ERROR             = 100,
     MEDIA_INFO              = 200,
-    MEDIA_SOURCE_DETECTED	= 234,		//add by Bevis, for Dlna source detector
 };
 
 // Generic error codes for the media player framework.  Errors are fatal, the
@@ -81,8 +74,6 @@ enum media_error_type {
     // 2xx
     MEDIA_ERROR_NOT_VALID_FOR_PROGRESSIVE_PLAYBACK = 200,
     // 3xx
-    // 9xx
-    MEDIA_ERROR_OUT_OF_MEMORY = 900,
 };
 
 
@@ -136,13 +127,7 @@ enum media_info_type {
     MEDIA_INFO_TIMED_TEXT_ERROR = 900,
 };
 
-/* add by Gary. start {{----------------------------------- */
-/**
-*  screen name
-*/
-#define MASTER_SCREEN        0
-#define SLAVE_SCREEN         1
-/* add by Gary. end   -----------------------------------}} */
+
 
 enum media_player_states {
     MEDIA_PLAYER_STATE_ERROR        = 0,
@@ -214,7 +199,7 @@ public:
             status_t        setDataSource(int fd, int64_t offset, int64_t length);
             status_t        setDataSource(const sp<IStreamSource> &source);
             status_t        setVideoSurfaceTexture(
-                                    const sp<ISurfaceTexture>& surfaceTexture);
+                                    const sp<IGraphicBufferProducer>& bufferProducer);
             status_t        setListener(const sp<MediaPlayerListener>& listener);
             status_t        prepare();
             status_t        prepareAsync();
@@ -246,91 +231,9 @@ public:
             status_t        getParameter(int key, Parcel* reply);
             status_t        setRetransmitEndpoint(const char* addrString, uint16_t port);
             status_t        setNextMediaPlayer(const sp<MediaPlayer>& player);
-            /* add by Gary. start {{----------------------------------- */
-            static  status_t        setScreen(int screen);
-            static  status_t        getScreen(int *screen);
-            static  status_t        isPlayingVideo(bool *playing);
-            /* add by Gary. end   -----------------------------------}} */
-            
-            /* add by Gary. start {{----------------------------------- */
-            /* 2011-9-13 14:05:05 */
-            /* expend interfaces about subtitle, track and so on */
-            int             getSubCount();
-            int             getSubList(MediaPlayer_SubInfo *infoList, int count);
-            int             getCurSub();
-            status_t        switchSub(int index);
-            status_t        setSubGate(bool showSub);
-            bool            getSubGate();
-            status_t        setSubColor(int color);
-            int             getSubColor();
-            status_t        setSubFrameColor(int color);
-            int             getSubFrameColor();
-            status_t        setSubFontSize(int size);
-            int             getSubFontSize();
-            status_t        setSubCharset(const char *charset);
-            status_t        getSubCharset(char *charset);
-            status_t        setSubPosition(int percent);
-            int             getSubPosition();
-            status_t        setSubDelay(int time);
-            int             getSubDelay();
-            int             getTrackCount();
-            int             getTrackList(MediaPlayer_TrackInfo *infoList, int count);
-            int             getCurTrack();
-            status_t        switchTrack(int index);
-            status_t        setInputDimensionType(int type);
-            int             getInputDimensionType();
-            status_t        setOutputDimensionType(int type);
-            int             getOutputDimensionType();
-            status_t        setAnaglaghType(int type);
-            int             getAnaglaghType();
-            status_t        getVideoEncode(char *encode);
-            int             getVideoFrameRate();
-            status_t        getAudioEncode(char *encode);
-            int             getAudioBitRate();
-            int             getAudioSampleRate();
-    /* add by Gary. end   -----------------------------------}} */
 
-    /* add by Gary. start {{----------------------------------- */
-    /* 2011-11-14 */
-    /* support scale mode */
-            status_t        enableScaleMode(bool enable, int width, int height);
-    /* add by Gary. end   -----------------------------------}} */
-
-    /* add by Gary. start {{----------------------------------- */
-    /* 2011-11-14 */
-    /* support adjusting colors while playing video */
-    static  status_t        setVppGate(bool enableVpp);
-    static  bool            getVppGate();
-    static  status_t        setLumaSharp(int value);
-    static  int             getLumaSharp();
-    static  status_t        setChromaSharp(int value);
-    static  int             getChromaSharp();
-    static  status_t        setWhiteExtend(int value);
-    static  int             getWhiteExtend();
-    static  status_t        setBlackExtend(int value);
-    static  int             getBlackExtend();
-    /* add by Gary. end   -----------------------------------}} */
-
-    /* add by Gary. start {{----------------------------------- */
-    /* 2012-03-07 */
-    /* set audio channel mute */
-            status_t        setChannelMuteMode(int muteMode);
-            int             getChannelMuteMode();
-    /* add by Gary. end   -----------------------------------}} */
-
-    /* add by Gary. start {{----------------------------------- */
-    /* 2012-03-12 */
-    /* add the global interfaces to control the subtitle gate  */
-    static  status_t        setGlobalSubGate(bool showSub);
-    static  bool            getGlobalSubGate();
-    /* add by Gary. end   -----------------------------------}} */
-
-    /* add by Gary. start {{----------------------------------- */
-    /* 2012-4-24 */
-    /* add two general interfaces for expansibility */
-            status_t        generalInterface(int cmd, int int1, int int2, int int3, void *p);
-    static  status_t        generalGlobalInterface(int cmd, int int1, int int2, int int3, void *p);
-    /* add by Gary. end   -----------------------------------}} */
+            status_t updateProxyConfig(
+                    const char *host, int32_t port, const char *exclusionList);
 
 private:
             void            clear_l();
@@ -363,20 +266,6 @@ private:
     float                       mSendLevel;
     struct sockaddr_in          mRetransmitEndpoint;
     bool                        mRetransmitEndpointValid;
-    /* add by Gary. start {{----------------------------------- */
-    /* 2011-9-28 16:28:24 */
-    /* save properties before creating the real player */
-    bool                        mSubGate;
-    int                         mSubColor;
-    int                         mSubFrameColor;
-    int                         mSubPosition;
-    int                         mSubDelay;
-    int                         mSubFontSize;
-    char                        mSubCharset[MEDIAPLAYER_NAME_LEN_MAX];
-	int                         mSubIndex;
-    int                         mTrackIndex;
-    int                         mMuteMode;   // 2012-03-07, set audio channel mute
-   /* add by Gary. end   -----------------------------------}} */
 };
 
 }; // namespace android

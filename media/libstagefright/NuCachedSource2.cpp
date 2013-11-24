@@ -187,7 +187,6 @@ NuCachedSource2::NuCachedSource2(
       mCache(new PageCache(kPageSize)),
       mCacheOffset(0),
       mFinalStatus(OK),
-      mForceReconnect(false),
       mLastAccessPos(0),
       mFetching(true),
       mLastFetchTimeUs(-1),
@@ -195,8 +194,7 @@ NuCachedSource2::NuCachedSource2(
       mHighwaterThresholdBytes(kDefaultHighWaterThreshold),
       mLowwaterThresholdBytes(kDefaultLowWaterThreshold),
       mKeepAliveIntervalUs(kDefaultKeepAliveIntervalUs),
-      mDisconnectAtHighwatermark(disconnectAtHighwatermark),
-      mForceStop(false) {
+      mDisconnectAtHighwatermark(disconnectAtHighwatermark) {
     // We are NOT going to support disconnect-at-highwatermark indefinitely
     // and we are not guaranteeing support for client-specified cache
     // parameters. Both of these are temporary measures to solve a specific
@@ -232,17 +230,7 @@ NuCachedSource2::~NuCachedSource2() {
 status_t NuCachedSource2::getEstimatedBandwidthKbps(int32_t *kbps) {
     if (mSource->flags() & kIsHTTPBasedSource) {
         HTTPBase* source = static_cast<HTTPBase *>(mSource.get());
-        //return source->getEstimatedBandwidthKbps(kbps);
-        if(source->estimateBandwidth(kbps) == true)
-        {
-        	*kbps /= 1000;
-        	return OK;
-        }
-        else
-        {
-        	*kbps = 0;
-        	return UNKNOWN_ERROR;
-        }
+        return source->getEstimatedBandwidthKbps(kbps);
     }
     return ERROR_UNSUPPORTED;
 }
@@ -301,10 +289,6 @@ void NuCachedSource2::fetchInternal() {
             --mNumRetriesLeft;
 
             reconnect = true;
-        }else if (mForceReconnect) {
-        	ALOGD("ForceReconnect!!!");
-        	mForceReconnect = false;
-            reconnect = true;
         }
     }
 
@@ -334,10 +318,7 @@ void NuCachedSource2::fetchInternal() {
 
     Mutex::Autolock autoLock(mLock);
 
-    if(n == -ETIMEDOUT) {
-    	mForceReconnect = true;
-    }else if (n < 0) {
-        ALOGE("source returned error %ld, %d retries left", n, mNumRetriesLeft);
+    if (n < 0) {
         mFinalStatus = n;
         if (n == ERROR_UNSUPPORTED || n == -EPIPE) {
             // These are errors that are not likely to go away even if we
@@ -439,11 +420,6 @@ void NuCachedSource2::onRead(const sp<AMessage> &msg) {
         return;
     }
 
-    if(mForceStop) {
-    	mAsyncResult.clear();
-    	return ;
-    }
-
     Mutex::Autolock autoLock(mLock);
 
     CHECK(mAsyncResult == NULL);
@@ -489,11 +465,6 @@ ssize_t NuCachedSource2::readAt(off64_t offset, void *data, size_t size) {
     Mutex::Autolock autoSerializer(mSerializer);
 
     ALOGV("readAt offset %lld, size %d", offset, size);
-
-    if(mForceStop) {
-    	ALOGI("already stopped, return error.");
-    	return -1;
-    }
 
     Mutex::Autolock autoLock(mLock);
 
@@ -574,7 +545,7 @@ ssize_t NuCachedSource2::readInternal(off64_t offset, void *data, size_t size) {
 
     if (offset < mCacheOffset
             || offset >= (off64_t)(mCacheOffset + mCache->totalSize())) {
-        static const off64_t kPadding = 0;          //256 * 1024;
+        static const off64_t kPadding = 256 * 1024;
 
         // In the presence of multiple decoded streams, once of them will
         // trigger this seek request, the other one will request data "nearby"
@@ -629,13 +600,7 @@ status_t NuCachedSource2::seekInternal_l(off64_t offset) {
     size_t totalSize = mCache->totalSize();
     CHECK_EQ(mCache->releaseFromStart(totalSize), totalSize);
 
-    if(mFinalStatus < 0) {
-       	mForceReconnect = true;
-    }
-    //mNumRetriesLeft = kMaxNumRetries;
-    mForceReconnect =true;
-    
-    mFinalStatus = OK;
+    mNumRetriesLeft = kMaxNumRetries;
     mFetching = true;
 
     return OK;
@@ -741,49 +706,6 @@ void NuCachedSource2::RemoveCacheSpecificHeaders(
 
         ALOGV("Client requested disconnection at highwater mark");
     }
-}
-
-void NuCachedSource2::forceDisconnect()
-{
-    mNumRetriesLeft = 0;
-    mFinalStatus = ERROR_END_OF_STREAM;
-    mForceStop = true;
-
-    int32_t result = -1;
-    mAsyncResult = new AMessage;
-    mAsyncResult->setInt32("result", result);
-    mCondition.broadcast();
-
-}
-
-status_t NuCachedSource2::generalInterface(int32_t cmd, int32_t ext1, int32_t ext2)
-{
-       switch(cmd) {
-       case kSetHighwaterThresholdBytes:
-               if(mHighwaterThresholdBytes != (uint32_t)ext1)
-               {
-                       mLock.lock();
-                       mHighwaterThresholdBytes = ext1;
-                       mLock.unlock();
-               }
-               ALOGV("cache threshold: [%u, %u]", mLowwaterThresholdBytes, mHighwaterThresholdBytes);
-               break;
-
-       case kSetLowwaterThresholdBytes:
-               if(mLowwaterThresholdBytes != (uint32_t)ext1)
-               {
-                       mLock.lock();
-                       mLowwaterThresholdBytes = ext1;
-                       mLock.unlock();
-               }
-               ALOGV("cache threshold: [%u, %u]", mLowwaterThresholdBytes, mHighwaterThresholdBytes);
-               break;
-
-       default:
-               break;
-
-       }
-       return OK;
 }
 
 }  // namespace android

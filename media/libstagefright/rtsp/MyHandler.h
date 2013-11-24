@@ -28,13 +28,13 @@
 #include "ASessionDescription.h"
 
 #include <ctype.h>
-#include <cutils/properties.h>
 
 #include <media/stagefright/foundation/ABuffer.h>
 #include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/foundation/ALooper.h>
 #include <media/stagefright/foundation/AMessage.h>
 #include <media/stagefright/MediaErrors.h>
+#include <media/stagefright/Utils.h>
 
 #include <arpa/inet.h>
 #include <sys/socket.h>
@@ -52,20 +52,9 @@ static int64_t kStartupTimeoutUs = 10000000ll;
 
 static int64_t kDefaultKeepAliveTimeoutUs = 60000000ll;
 
+static int64_t kPauseDelayUs = 3000000ll;
+
 namespace android {
-
-static void MakeUserAgentString(AString *s) {
-    s->setTo("stagefright/1.1 (Linux;Android ");
-
-#if (PROPERTY_VALUE_MAX < 8)
-#error "PROPERTY_VALUE_MAX must be at least 8"
-#endif
-
-    char value[PROPERTY_VALUE_MAX];
-    property_get("ro.build.version.release", value, "Unknown");
-    s->append(value);
-    s->append(")");
-}
 
 static bool GetAttribute(const char *s, const char *key, AString *value) {
     value->clear();
@@ -129,13 +118,17 @@ struct MyHandler : public AHandler {
           mNumAccessUnitsReceived(0),
           mCheckPending(false),
           mCheckGeneration(0),
+          mCheckTimeoutGeneration(0),
           mTryTCPInterleaving(false),
           mTryFakeRTCP(false),
           mReceivedFirstRTCPPacket(false),
           mReceivedFirstRTPPacket(false),
-          mSeekable(false),
+          mSeekable(true),
           mKeepAliveTimeoutUs(kDefaultKeepAliveTimeoutUs),
-          mKeepAliveGeneration(0) {
+          mKeepAliveGeneration(0),
+          mPausing(false),
+          mPauseGeneration(0),
+          mPlayResponseParsed(false) {
         mNetLooper->setName("rtsp net");
         mNetLooper->start(false /* runOnCallingThread */,
                           false /* canCallJava */,
@@ -173,6 +166,39 @@ struct MyHandler : public AHandler {
         mConn->connect(mOriginalSessionURL.c_str(), reply);
     }
 
+    void loadSDP(const sp<ASessionDescription>& desc) {
+        looper()->registerHandler(mConn);
+        (1 ? mNetLooper : looper())->registerHandler(mRTPConn);
+
+        sp<AMessage> notify = new AMessage('biny', id());
+        mConn->observeBinaryData(notify);
+
+        sp<AMessage> reply = new AMessage('sdpl', id());
+        reply->setObject("description", desc);
+        mConn->connect(mOriginalSessionURL.c_str(), reply);
+    }
+
+    AString getControlURL(sp<ASessionDescription> desc) {
+        AString sessionLevelControlURL;
+        if (mSessionDesc->findAttribute(
+                0,
+                "a=control",
+                &sessionLevelControlURL)) {
+            if (sessionLevelControlURL.compare("*") == 0) {
+                return mBaseURL;
+            } else {
+                AString controlURL;
+                CHECK(MakeURL(
+                        mBaseURL.c_str(),
+                        sessionLevelControlURL.c_str(),
+                        &controlURL));
+                return controlURL;
+            }
+        } else {
+            return mSessionURL;
+        }
+    }
+
     void disconnect() {
         (new AMessage('abor', id()))->post();
     }
@@ -180,6 +206,24 @@ struct MyHandler : public AHandler {
     void seek(int64_t timeUs) {
         sp<AMessage> msg = new AMessage('seek', id());
         msg->setInt64("time", timeUs);
+        mPauseGeneration++;
+        msg->post();
+    }
+
+    bool isSeekable() const {
+        return mSeekable;
+    }
+
+    void pause() {
+        sp<AMessage> msg = new AMessage('paus', id());
+        mPauseGeneration++;
+        msg->setInt32("pausecheck", mPauseGeneration);
+        msg->post(kPauseDelayUs);
+    }
+
+    void resume() {
+        sp<AMessage> msg = new AMessage('resu', id());
+        mPauseGeneration++;
         msg->post();
     }
 
@@ -223,8 +267,7 @@ struct MyHandler : public AHandler {
 
         data[offset++] = 6;  // TOOL
 
-        AString tool;
-        MakeUserAgentString(&tool);
+        AString tool = MakeUserAgent();
 
         data[offset++] = tool.size();
 
@@ -348,6 +391,39 @@ struct MyHandler : public AHandler {
         return true;
     }
 
+    static bool isLiveStream(const sp<ASessionDescription> &desc) {
+        AString attrLiveStream;
+        if (desc->findAttribute(0, "a=LiveStream", &attrLiveStream)) {
+            ssize_t semicolonPos = attrLiveStream.find(";", 2);
+
+            const char* liveStreamValue;
+            if (semicolonPos < 0) {
+                liveStreamValue = attrLiveStream.c_str();
+            } else {
+                AString valString;
+                valString.setTo(attrLiveStream,
+                        semicolonPos + 1,
+                        attrLiveStream.size() - semicolonPos - 1);
+                liveStreamValue = valString.c_str();
+            }
+
+            uint32_t value = strtoul(liveStreamValue, NULL, 10);
+            if (value == 1) {
+                ALOGV("found live stream");
+                return true;
+            }
+        } else {
+            // It is a live stream if no duration is returned
+            int64_t durationUs;
+            if (!desc->getDurationUs(&durationUs)) {
+                ALOGV("No duration found, assume live stream");
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     virtual void onMessageReceived(const sp<AMessage> &msg) {
         switch (msg->what()) {
             case 'conn':
@@ -422,6 +498,9 @@ struct MyHandler : public AHandler {
 
                     if (response->mStatusCode != 200) {
                         result = UNKNOWN_ERROR;
+                    } else if (response->mContent == NULL) {
+                        result = ERROR_MALFORMED;
+                        ALOGE("The response has no content.");
                     } else {
                         mSessionDesc = new ASessionDescription;
 
@@ -445,6 +524,8 @@ struct MyHandler : public AHandler {
                                 }
                             }
 
+                            mSeekable = !isLiveStream(mSessionDesc);
+
                             if (!mBaseURL.startsWith("rtsp://")) {
                                 // Some misbehaving servers specify a relative
                                 // URL in one of the locations above, combine
@@ -464,6 +545,8 @@ struct MyHandler : public AHandler {
                                 mBaseURL = tmp;
                             }
 
+                            mControlURL = getControlURL(mSessionDesc);
+
                             if (mSessionDesc->countTracks() < 2) {
                                 // There's no actual tracks in this session.
                                 // The first "track" is merely session meta
@@ -475,6 +558,51 @@ struct MyHandler : public AHandler {
                             } else {
                                 setupTrack(1);
                             }
+                        }
+                    }
+                }
+
+                if (result != OK) {
+                    sp<AMessage> reply = new AMessage('disc', id());
+                    mConn->disconnect(reply);
+                }
+                break;
+            }
+
+            case 'sdpl':
+            {
+                int32_t result;
+                CHECK(msg->findInt32("result", &result));
+
+                ALOGI("SDP connection request completed with result %d (%s)",
+                     result, strerror(-result));
+
+                if (result == OK) {
+                    sp<RefBase> obj;
+                    CHECK(msg->findObject("description", &obj));
+                    mSessionDesc =
+                        static_cast<ASessionDescription *>(obj.get());
+
+                    if (!mSessionDesc->isValid()) {
+                        ALOGE("Failed to parse session description.");
+                        result = ERROR_MALFORMED;
+                    } else {
+                        mBaseURL = mSessionURL;
+
+                        mSeekable = !isLiveStream(mSessionDesc);
+
+                        mControlURL = getControlURL(mSessionDesc);
+
+                        if (mSessionDesc->countTracks() < 2) {
+                            // There's no actual tracks in this session.
+                            // The first "track" is merely session meta
+                            // data.
+
+                            ALOGW("Session doesn't contain any playable "
+                                 "tracks. Aborting.");
+                            result = ERROR_UNSUPPORTED;
+                        } else {
+                            setupTrack(1);
                         }
                     }
                 }
@@ -558,23 +686,27 @@ struct MyHandler : public AHandler {
                         i = response->mHeaders.indexOfKey("transport");
                         CHECK_GE(i, 0);
 
-                        if (!track->mUsingInterleavedTCP) {
-                            AString transport = response->mHeaders.valueAt(i);
+                        if (track->mRTPSocket != -1 && track->mRTCPSocket != -1) {
+                            if (!track->mUsingInterleavedTCP) {
+                                AString transport = response->mHeaders.valueAt(i);
 
-                            // We are going to continue even if we were
-                            // unable to poke a hole into the firewall...
-                            pokeAHole(
-                                    track->mRTPSocket,
-                                    track->mRTCPSocket,
-                                    transport);
+                                // We are going to continue even if we were
+                                // unable to poke a hole into the firewall...
+                                pokeAHole(
+                                        track->mRTPSocket,
+                                        track->mRTCPSocket,
+                                        transport);
+                            }
+
+                            mRTPConn->addStream(
+                                    track->mRTPSocket, track->mRTCPSocket,
+                                    mSessionDesc, index,
+                                    notify, track->mUsingInterleavedTCP);
+
+                            mSetupTracksSuccessful = true;
+                        } else {
+                            result = BAD_VALUE;
                         }
-
-                        mRTPConn->addStream(
-                                track->mRTPSocket, track->mRTCPSocket,
-                                mSessionDesc, index,
-                                notify, track->mUsingInterleavedTCP);
-
-                        mSetupTracksSuccessful = true;
                     }
                 }
 
@@ -596,14 +728,14 @@ struct MyHandler : public AHandler {
                 }
 
                 ++index;
-                if (index < mSessionDesc->countTracks()) {
+                if (result == OK && index < mSessionDesc->countTracks()) {
                     setupTrack(index);
                 } else if (mSetupTracksSuccessful) {
                     ++mKeepAliveGeneration;
                     postKeepAlive();
 
                     AString request = "PLAY ";
-                    request.append(mSessionURL);
+                    request.append(mControlURL);
                     request.append(" RTSP/1.0\r\n");
 
                     request.append("Session: ");
@@ -641,6 +773,8 @@ struct MyHandler : public AHandler {
                         parsePlayResponse(response);
 
                         sp<AMessage> timeout = new AMessage('tiou', id());
+                        mCheckTimeoutGeneration++;
+                        timeout->setInt32("tioucheck", mCheckTimeoutGeneration);
                         timeout->post(kStartupTimeoutUs);
                     }
                 }
@@ -730,7 +864,8 @@ struct MyHandler : public AHandler {
                 mNumAccessUnitsReceived = 0;
                 mReceivedFirstRTCPPacket = false;
                 mReceivedFirstRTPPacket = false;
-                mSeekable = false;
+                mPausing = false;
+                mSeekable = true;
 
                 sp<AMessage> reply = new AMessage('tear', id());
 
@@ -851,9 +986,16 @@ struct MyHandler : public AHandler {
                 int32_t eos;
                 if (msg->findInt32("eos", &eos)) {
                     ALOGI("received BYE on track index %d", trackIndex);
-#if 0
-                    track->mPacketSource->signalEOS(ERROR_END_OF_STREAM);
-#endif
+                    if (!mAllTracksHaveTime && dataReceivedOnAllChannels()) {
+                        ALOGI("No time established => fake existing data");
+
+                        track->mEOSReceived = true;
+                        mTryFakeRTCP = true;
+                        mReceivedFirstRTCPPacket = true;
+                        fakeTimestamps();
+                    } else {
+                        postQueueEOS(trackIndex, ERROR_END_OF_STREAM);
+                    }
                     return;
                 }
 
@@ -881,6 +1023,115 @@ struct MyHandler : public AHandler {
                 break;
             }
 
+            case 'paus':
+            {
+                int32_t generation;
+                CHECK(msg->findInt32("pausecheck", &generation));
+                if (generation != mPauseGeneration) {
+                    ALOGV("Ignoring outdated pause message.");
+                    break;
+                }
+
+                if (!mSeekable) {
+                    ALOGW("This is a live stream, ignoring pause request.");
+                    break;
+                }
+                mCheckPending = true;
+                ++mCheckGeneration;
+                mPausing = true;
+
+                AString request = "PAUSE ";
+                request.append(mControlURL);
+                request.append(" RTSP/1.0\r\n");
+
+                request.append("Session: ");
+                request.append(mSessionID);
+                request.append("\r\n");
+
+                request.append("\r\n");
+
+                sp<AMessage> reply = new AMessage('pau2', id());
+                mConn->sendRequest(request.c_str(), reply);
+                break;
+            }
+
+            case 'pau2':
+            {
+                int32_t result;
+                CHECK(msg->findInt32("result", &result));
+                mCheckTimeoutGeneration++;
+
+                ALOGI("PAUSE completed with result %d (%s)",
+                     result, strerror(-result));
+                break;
+            }
+
+            case 'resu':
+            {
+                if (mPausing && mSeekPending) {
+                    // If seeking, Play will be sent from see1 instead
+                    break;
+                }
+
+                if (!mPausing) {
+                    // Dont send PLAY if we have not paused
+                    break;
+                }
+                AString request = "PLAY ";
+                request.append(mControlURL);
+                request.append(" RTSP/1.0\r\n");
+
+                request.append("Session: ");
+                request.append(mSessionID);
+                request.append("\r\n");
+
+                request.append("\r\n");
+
+                sp<AMessage> reply = new AMessage('res2', id());
+                mConn->sendRequest(request.c_str(), reply);
+                break;
+            }
+
+            case 'res2':
+            {
+                int32_t result;
+                CHECK(msg->findInt32("result", &result));
+
+                ALOGI("PLAY completed with result %d (%s)",
+                     result, strerror(-result));
+
+                mCheckPending = false;
+                postAccessUnitTimeoutCheck();
+
+                if (result == OK) {
+                    sp<RefBase> obj;
+                    CHECK(msg->findObject("response", &obj));
+                    sp<ARTSPResponse> response =
+                        static_cast<ARTSPResponse *>(obj.get());
+
+                    if (response->mStatusCode != 200) {
+                        result = UNKNOWN_ERROR;
+                    } else {
+                        parsePlayResponse(response);
+
+                        // Post new timeout in order to make sure to use
+                        // fake timestamps if no new Sender Reports arrive
+                        sp<AMessage> timeout = new AMessage('tiou', id());
+                        mCheckTimeoutGeneration++;
+                        timeout->setInt32("tioucheck", mCheckTimeoutGeneration);
+                        timeout->post(kStartupTimeoutUs);
+                    }
+                }
+
+                if (result != OK) {
+                    ALOGE("resume failed, aborting.");
+                    (new AMessage('abor', id()))->post();
+                }
+
+                mPausing = false;
+                break;
+            }
+
             case 'seek':
             {
                 if (!mSeekable) {
@@ -902,8 +1153,17 @@ struct MyHandler : public AHandler {
                 mCheckPending = true;
                 ++mCheckGeneration;
 
+                sp<AMessage> reply = new AMessage('see1', id());
+                reply->setInt64("time", timeUs);
+
+                if (mPausing) {
+                    // PAUSE already sent
+                    ALOGI("Pause already sent");
+                    reply->post();
+                    break;
+                }
                 AString request = "PAUSE ";
-                request.append(mSessionURL);
+                request.append(mControlURL);
                 request.append(" RTSP/1.0\r\n");
 
                 request.append("Session: ");
@@ -912,8 +1172,6 @@ struct MyHandler : public AHandler {
 
                 request.append("\r\n");
 
-                sp<AMessage> reply = new AMessage('see1', id());
-                reply->setInt64("time", timeUs);
                 mConn->sendRequest(request.c_str(), reply);
                 break;
             }
@@ -925,6 +1183,7 @@ struct MyHandler : public AHandler {
                     TrackInfo *info = &mTracks.editItemAt(i);
 
                     postQueueSeekDiscontinuity(i);
+                    info->mEOSReceived = false;
 
                     info->mRTPAnchor = 0;
                     info->mNTPAnchorUs = -1;
@@ -933,11 +1192,18 @@ struct MyHandler : public AHandler {
                 mAllTracksHaveTime = false;
                 mNTPAnchorUs = -1;
 
+                // Start new timeoutgeneration to avoid getting timeout
+                // before PLAY response arrive
+                sp<AMessage> timeout = new AMessage('tiou', id());
+                mCheckTimeoutGeneration++;
+                timeout->setInt32("tioucheck", mCheckTimeoutGeneration);
+                timeout->post(kStartupTimeoutUs);
+
                 int64_t timeUs;
                 CHECK(msg->findInt64("time", &timeUs));
 
                 AString request = "PLAY ";
-                request.append(mSessionURL);
+                request.append(mControlURL);
                 request.append(" RTSP/1.0\r\n");
 
                 request.append("Session: ");
@@ -957,7 +1223,10 @@ struct MyHandler : public AHandler {
 
             case 'see2':
             {
-                CHECK(mSeekPending);
+                if (mTracks.size() == 0) {
+                    // We have already hit abor, break
+                    break;
+                }
 
                 int32_t result;
                 CHECK(msg->findInt32("result", &result));
@@ -979,6 +1248,13 @@ struct MyHandler : public AHandler {
                     } else {
                         parsePlayResponse(response);
 
+                        // Post new timeout in order to make sure to use
+                        // fake timestamps if no new Sender Reports arrive
+                        sp<AMessage> timeout = new AMessage('tiou', id());
+                        mCheckTimeoutGeneration++;
+                        timeout->setInt32("tioucheck", mCheckTimeoutGeneration);
+                        timeout->post(kStartupTimeoutUs);
+
                         ssize_t i = response->mHeaders.indexOfKey("rtp-info");
                         CHECK_GE(i, 0);
 
@@ -993,6 +1269,7 @@ struct MyHandler : public AHandler {
                     (new AMessage('abor', id()))->post();
                 }
 
+                mPausing = false;
                 mSeekPending = false;
 
                 sp<AMessage> msg = mNotify->dup();
@@ -1015,8 +1292,17 @@ struct MyHandler : public AHandler {
 
             case 'tiou':
             {
+                int32_t timeoutGenerationCheck;
+                CHECK(msg->findInt32("tioucheck", &timeoutGenerationCheck));
+                if (timeoutGenerationCheck != mCheckTimeoutGeneration) {
+                    // This is an outdated message. Ignore.
+                    // This typically happens if a lot of seeks are
+                    // performed, since new timeout messages now are
+                    // posted at seek as well.
+                    break;
+                }
                 if (!mReceivedFirstRTCPPacket) {
-                    if (mReceivedFirstRTPPacket && !mTryFakeRTCP) {
+                    if (dataReceivedOnAllChannels() && !mTryFakeRTCP) {
                         ALOGW("We received RTP packets but no RTCP packets, "
                              "using fake timestamps.");
 
@@ -1090,7 +1376,11 @@ struct MyHandler : public AHandler {
     }
 
     void parsePlayResponse(const sp<ARTSPResponse> &response) {
-        mSeekable = false;
+        mPlayResponseParsed = true;
+        if (mTracks.size() == 0) {
+            ALOGV("parsePlayResponse: late packets ignored.");
+            return;
+        }
 
         ssize_t i = response->mHeaders.indexOfKey("range");
         if (i < 0) {
@@ -1161,8 +1451,6 @@ struct MyHandler : public AHandler {
 
             ++n;
         }
-
-        mSeekable = true;
     }
 
     sp<MetaData> getTrackFormat(size_t index, int32_t *timeScale) {
@@ -1192,6 +1480,7 @@ private:
         uint32_t mRTPAnchor;
         int64_t mNTPAnchorUs;
         int32_t mTimeScale;
+        bool mEOSReceived;
 
         uint32_t mNormalPlayTimeRTP;
         int64_t mNormalPlayTimeUs;
@@ -1214,6 +1503,7 @@ private:
     AString mSessionURL;
     AString mSessionHost;
     AString mBaseURL;
+    AString mControlURL;
     AString mSessionID;
     bool mSetupTracksSuccessful;
     bool mSeekPending;
@@ -1227,6 +1517,7 @@ private:
     int64_t mNumAccessUnitsReceived;
     bool mCheckPending;
     int32_t mCheckGeneration;
+    int32_t mCheckTimeoutGeneration;
     bool mTryTCPInterleaving;
     bool mTryFakeRTCP;
     bool mReceivedFirstRTCPPacket;
@@ -1234,8 +1525,12 @@ private:
     bool mSeekable;
     int64_t mKeepAliveTimeoutUs;
     int32_t mKeepAliveGeneration;
+    bool mPausing;
+    int32_t mPauseGeneration;
 
     Vector<TrackInfo> mTracks;
+
+    bool mPlayResponseParsed;
 
     void setupTrack(size_t index) {
         sp<APacketSource> source =
@@ -1264,6 +1559,8 @@ private:
         info->mUsingInterleavedTCP = false;
         info->mFirstSeqNumInSegment = 0;
         info->mNewSegment = true;
+        info->mRTPSocket = -1;
+        info->mRTCPSocket = -1;
         info->mRTPAnchor = 0;
         info->mNTPAnchorUs = -1;
         info->mNormalPlayTimeRTP = 0;
@@ -1280,6 +1577,7 @@ private:
                 formatDesc.c_str(), &timescale, &numChannels);
 
         info->mTimeScale = timescale;
+        info->mEOSReceived = false;
 
         ALOGV("track #%d URL=%s", mTracks.size(), trackURL.c_str());
 
@@ -1372,6 +1670,17 @@ private:
         }
     }
 
+    bool dataReceivedOnAllChannels() {
+        TrackInfo *track;
+        for (size_t i = 0; i < mTracks.size(); ++i) {
+            track = &mTracks.editItemAt(i);
+            if (track->mPackets.empty()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     void onTimeUpdate(int32_t trackIndex, uint32_t rtpTime, uint64_t ntpTime) {
         ALOGV("onTimeUpdate track %d, rtpTime = 0x%08x, ntpTime = 0x%016llx",
              trackIndex, rtpTime, ntpTime);
@@ -1402,11 +1711,39 @@ private:
                 ALOGI("Time now established for all tracks.");
             }
         }
+        if (mAllTracksHaveTime && dataReceivedOnAllChannels()) {
+            // Time is now established, lets start timestamping immediately
+            for (size_t i = 0; i < mTracks.size(); ++i) {
+                TrackInfo *trackInfo = &mTracks.editItemAt(i);
+                while (!trackInfo->mPackets.empty()) {
+                    sp<ABuffer> accessUnit = *trackInfo->mPackets.begin();
+                    trackInfo->mPackets.erase(trackInfo->mPackets.begin());
+
+                    if (addMediaTimestamp(i, trackInfo, accessUnit)) {
+                        postQueueAccessUnit(i, accessUnit);
+                    }
+                }
+            }
+            for (size_t i = 0; i < mTracks.size(); ++i) {
+                TrackInfo *trackInfo = &mTracks.editItemAt(i);
+                if (trackInfo->mEOSReceived) {
+                    postQueueEOS(i, ERROR_END_OF_STREAM);
+                    trackInfo->mEOSReceived = false;
+                }
+            }
+        }
     }
 
     void onAccessUnitComplete(
             int32_t trackIndex, const sp<ABuffer> &accessUnit) {
         ALOGV("onAccessUnitComplete track %d", trackIndex);
+
+        if(!mPlayResponseParsed){
+            ALOGI("play response is not parsed, storing accessunit");
+            TrackInfo *track = &mTracks.editItemAt(trackIndex);
+            track->mPackets.push_back(accessUnit);
+            return;
+        }
 
         if (mFirstAccessUnit) {
             sp<AMessage> msg = mNotify->dup();
@@ -1445,6 +1782,11 @@ private:
 
         if (addMediaTimestamp(trackIndex, track, accessUnit)) {
             postQueueAccessUnit(trackIndex, accessUnit);
+        }
+
+        if (track->mEOSReceived) {
+            postQueueEOS(trackIndex, ERROR_END_OF_STREAM);
+            track->mEOSReceived = false;
         }
     }
 

@@ -56,13 +56,12 @@ public:
      * return null if the track cannot be created.
      */
     virtual sp<IAudioTrack> createTrack(
-                                pid_t pid,
                                 audio_stream_type_t streamType,
                                 uint32_t sampleRate,
                                 audio_format_t format,
                                 audio_channel_mask_t channelMask,
-                                int frameCount,
-                                track_flags_t flags,
+                                size_t frameCount,
+                                track_flags_t *flags,
                                 const sp<IMemory>& sharedBuffer,
                                 audio_io_handle_t output,
                                 pid_t tid,  // -1 means unused, otherwise must be valid non-0
@@ -70,12 +69,11 @@ public:
                                 status_t *status) = 0;
 
     virtual sp<IAudioRecord> openRecord(
-                                pid_t pid,
                                 audio_io_handle_t input,
                                 uint32_t sampleRate,
                                 audio_format_t format,
                                 audio_channel_mask_t channelMask,
-                                int frameCount,
+                                size_t frameCount,
                                 track_flags_t flags,
                                 pid_t tid,  // -1 means unused, otherwise must be valid non-0
                                 int *sessionId,
@@ -123,7 +121,8 @@ public:
 
     virtual     status_t    setParameters(audio_io_handle_t ioHandle,
                                     const String8& keyValuePairs) = 0;
-    virtual     String8     getParameters(audio_io_handle_t ioHandle, const String8& keys) const = 0;
+    virtual     String8     getParameters(audio_io_handle_t ioHandle, const String8& keys)
+                                    const = 0;
 
     // register a current process for audio output change notifications
     virtual void registerClient(const sp<IAudioFlingerClient>& client) = 0;
@@ -156,10 +155,10 @@ public:
 
     virtual status_t setVoiceVolume(float volume) = 0;
 
-    virtual status_t getRenderPosition(uint32_t *halFrames, uint32_t *dspFrames,
+    virtual status_t getRenderPosition(size_t *halFrames, size_t *dspFrames,
                                     audio_io_handle_t output) const = 0;
 
-    virtual unsigned int getInputFramesLost(audio_io_handle_t ioHandle) const = 0;
+    virtual size_t getInputFramesLost(audio_io_handle_t ioHandle) const = 0;
 
     virtual int newAudioSessionId() = 0;
 
@@ -173,7 +172,7 @@ public:
     virtual status_t getEffectDescriptor(const effect_uuid_t *pEffectUUID,
                                         effect_descriptor_t *pDescriptor) const = 0;
 
-    virtual sp<IEffect> createEffect(pid_t pid,
+    virtual sp<IEffect> createEffect(
                                     effect_descriptor_t *pDesc,
                                     const sp<IEffectClient>& client,
                                     int32_t priority,
@@ -191,8 +190,8 @@ public:
     // helpers for android.media.AudioManager.getProperty(), see description there for meaning
     // FIXME move these APIs to AudioPolicy to permit a more accurate implementation
     // that looks on primary device for a stream with fast flag, primary flag, or first one.
-    virtual int32_t getPrimaryOutputSamplingRate() = 0;
-    virtual int32_t getPrimaryOutputFrameCount() = 0;
+    virtual uint32_t getPrimaryOutputSamplingRate() = 0;
+    virtual size_t getPrimaryOutputFrameCount() = 0;
 
 };
 

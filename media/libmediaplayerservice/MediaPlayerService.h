@@ -239,21 +239,25 @@ public:
     static  void                instantiate();
 
     // IMediaPlayerService interface
-    virtual sp<IMediaRecorder>  createMediaRecorder(pid_t pid);
+    virtual sp<IMediaRecorder>  createMediaRecorder();
     void    removeMediaRecorderClient(wp<MediaRecorderClient> client);
-    virtual sp<IMediaMetadataRetriever> createMetadataRetriever(pid_t pid);
+    virtual sp<IMediaMetadataRetriever> createMetadataRetriever();
 
-    virtual sp<IMediaPlayer>    create(pid_t pid, const sp<IMediaPlayerClient>& client, int audioSessionId);
+    virtual sp<IMediaPlayer>    create(const sp<IMediaPlayerClient>& client, int audioSessionId);
 
     virtual sp<IMemory>         decode(const char* url, uint32_t *pSampleRate, int* pNumChannels, audio_format_t* pFormat);
     virtual sp<IMemory>         decode(int fd, int64_t offset, int64_t length, uint32_t *pSampleRate, int* pNumChannels, audio_format_t* pFormat);
     virtual sp<IOMX>            getOMX();
     virtual sp<ICrypto>         makeCrypto();
-    virtual sp<IHDCP>           makeHDCP();
+    virtual sp<IDrm>            makeDrm();
+    virtual sp<IHDCP>           makeHDCP(bool createEncryptionModule);
 
     virtual sp<IRemoteDisplay> listenForRemoteDisplay(const sp<IRemoteDisplayClient>& client,
             const String8& iface);
     virtual status_t            dump(int fd, const Vector<String16>& args);
+
+    virtual status_t        updateProxyConfig(
+            const char *host, int32_t port, const char *exclusionList);
 
             void                removeClient(wp<Client> client);
 
@@ -301,46 +305,13 @@ public:
     virtual void                addBatteryData(uint32_t params);
     // API for the Battery app to pull the data of codecs usage
     virtual status_t            pullBatteryData(Parcel* reply);
-    /* add by Gary. start {{----------------------------------- */
-    virtual status_t            setScreen(int screen);
-    virtual status_t            getScreen(int *screen);
-    virtual status_t            isPlayingVideo(int *playing);
-    /* add by Gary. end   -----------------------------------}} */
-
-    /* add by Gary. start {{----------------------------------- */
-    /* 2011-11-14 */
-    /* support adjusting colors while playing video */
-    virtual status_t            setVppGate(bool enableVpp);
-    virtual bool                getVppGate();
-    virtual status_t            setLumaSharp(int value);
-    virtual int                 getLumaSharp();
-    virtual status_t            setChromaSharp(int value);
-    virtual int                 getChromaSharp();
-    virtual status_t            setWhiteExtend(int value);
-    virtual int                 getWhiteExtend();
-    virtual status_t            setBlackExtend(int value);
-    virtual int                 getBlackExtend();
-    /* add by Gary. end   -----------------------------------}} */
-
-    /* add by Gary. start {{----------------------------------- */
-    /* 2012-03-12 */
-    /* add the global interfaces to control the subtitle gate  */
-    virtual status_t            setGlobalSubGate(bool showSub);
-    virtual bool                getGlobalSubGate();
-    /* add by Gary. end   -----------------------------------}} */
-
-    /* add by Gary. start {{----------------------------------- */
-    /* 2012-4-24 */
-    /* add two general interfaces for expansibility */
-    virtual status_t            generalGlobalInterface(int cmd, int int1, int int2, int int3, void *p);
-    /* add by Gary. end   -----------------------------------}} */
 private:
 
     class Client : public BnMediaPlayer {
         // IMediaPlayer interface
         virtual void            disconnect();
         virtual status_t        setVideoSurfaceTexture(
-                                        const sp<ISurfaceTexture>& surfaceTexture);
+                                        const sp<IGraphicBufferProducer>& bufferProducer);
         virtual status_t        prepareAsync();
         virtual status_t        start();
         virtual status_t        stop();
@@ -365,79 +336,7 @@ private:
         virtual status_t        setRetransmitEndpoint(const struct sockaddr_in* endpoint);
         virtual status_t        getRetransmitEndpoint(struct sockaddr_in* endpoint);
         virtual status_t        setNextPlayer(const sp<IMediaPlayer>& player);
-        /* add by Gary. start {{----------------------------------- */
-        virtual status_t        setScreen(int screen);
-        virtual status_t        isPlayingVideo(int *playing);
-        /* add by Gary. end   -----------------------------------}} */
 
-        /* add by Gary. start {{----------------------------------- */
-        /* 2011-9-15 15:39:01 */
-        /* expend interfaces about subtitle, track and so on */
-        virtual int             getSubCount();
-        virtual int             getSubList(MediaPlayer_SubInfo *infoList, int count);
-        virtual int             getCurSub();
-        virtual status_t        switchSub(int index);
-        virtual status_t        setSubGate(bool showSub);
-        virtual bool            getSubGate();
-        virtual status_t        setSubColor(int color);
-        virtual int             getSubColor();
-        virtual status_t        setSubFrameColor(int color);
-        virtual int             getSubFrameColor();
-        virtual status_t        setSubFontSize(int size);
-        virtual int             getSubFontSize();
-        virtual status_t        setSubCharset(const char *charset);
-        virtual status_t        getSubCharset(char *charset);
-        virtual status_t        setSubPosition(int percent);
-        virtual int             getSubPosition();
-        virtual status_t        setSubDelay(int time);
-        virtual int             getSubDelay();
-        virtual int             getTrackCount();
-        virtual int             getTrackList(MediaPlayer_TrackInfo *infoList, int count);
-        virtual int             getCurTrack();
-        virtual status_t        switchTrack(int index);
-        virtual status_t        setInputDimensionType(int type);
-        virtual int             getInputDimensionType();
-        virtual status_t        setOutputDimensionType(int type);
-        virtual int             getOutputDimensionType();
-        virtual status_t        setAnaglaghType(int type);
-        virtual int             getAnaglaghType();
-        virtual status_t        getVideoEncode(char *encode);
-        virtual int             getVideoFrameRate();
-        virtual status_t        getAudioEncode(char *encode);
-        virtual int             getAudioBitRate();
-        virtual int             getAudioSampleRate();
-        /* add by Gary. end   -----------------------------------}} */
-        
-        /* add by Gary. start {{----------------------------------- */
-        /* 2011-11-14 */
-        /* support scale mode */
-        virtual status_t        enableScaleMode(bool enable, int width, int height);
-        /* add by Gary. end   -----------------------------------}} */
-        
-        /* add by Gary. start {{----------------------------------- */
-        /* 2011-11-14 */
-        /* support adjusting colors while playing video */
-        virtual status_t        setVppGate(bool enableVpp);
-        virtual status_t        setLumaSharp(int value);
-        virtual status_t        setChromaSharp(int value);
-        virtual status_t        setWhiteExtend(int value);
-        virtual status_t        setBlackExtend(int value);
-        /* add by Gary. end   -----------------------------------}} */
-
-        /* add by Gary. start {{----------------------------------- */
-        /* 2012-03-07 */
-        /* set audio channel mute */
-        virtual status_t        setChannelMuteMode(int muteMode);
-        virtual int             getChannelMuteMode();
-        /* add by Gary. end   -----------------------------------}} */
-
-        /* add by Gary. start {{----------------------------------- */
-        /* 2012-4-24 */
-        /* add two general interfaces for expansibility */
-        virtual status_t        generalInterface(int cmd, int int1, int int2, int int3, void *p);
-        /* add by Gary. end   -----------------------------------}} */
-        virtual status_t        setDataSource(const sp<IStreamSource> &source, int type);
-        
         sp<MediaPlayerBase>     createPlayer(player_type playerType);
 
         virtual status_t        setDataSource(
@@ -507,45 +406,6 @@ private:
                     bool                        mRetransmitEndpointValid;
                     sp<Client>                  mNextClient;
 
-                    /* add by Gary. start {{----------------------------------- */
-                    int                         mHasSurface;
-                    int 						mMsg; //add by lszhang for play during<1 song
-                    /* add by Gary. end   -----------------------------------}} */
-
-                    /* add by Gary. start {{----------------------------------- */
-                    /* 2011-9-28 16:28:24 */
-                    /* save properties before creating the real player */
-                    bool                        mSubGate;
-                    int                         mSubColor;
-                    int                         mSubFrameColor;
-                    int                         mSubPosition;
-                    int                         mSubDelay;
-                    int                         mSubFontSize;
-                    char                        mSubCharset[MEDIAPLAYER_NAME_LEN_MAX];
-					int                         mSubIndex;
-				    int                         mTrackIndex;
-                    int                         mMuteMode;   // 2012-03-07, set audio channel mute
-                    /* add by Gary. end   -----------------------------------}} */
-
-                    /* add by Gary. start {{----------------------------------- */
-                    /* 2011-11-14 */
-                    /* support scale mode */
-                    bool                        mEnableScaleMode;
-                    int                         mScaleWidth;
-                    int                         mScaleHeight;
-                    /* add by Gary. end   -----------------------------------}} */
-
-                    /* add by Gary. start {{----------------------------------- */
-                    /* 2011-11-30 */
-                    /* fix the bug about setting global attibute */
-                    int                         mScreen;
-                    bool                        mVppGate;
-                    int                         mLumaSharp;
-                    int                         mChromaSharp;
-                    int                         mWhiteExtend;
-                    int                         mBlackExtend;
-                    /* add by Gary. end   -----------------------------------}} */
-
         // Metadata filters.
         media::Metadata::Filter mMetadataAllow;  // protected by mLock
         media::Metadata::Filter mMetadataDrop;  // protected by mLock
@@ -572,28 +432,6 @@ private:
                 int32_t                     mNextConnId;
                 sp<IOMX>                    mOMX;
                 sp<ICrypto>                 mCrypto;
-                /* add by Gary. start {{----------------------------------- */
-                int                         mScreen;
-                /* add by Gary. end   -----------------------------------}} */
-
-                /* add by Gary. start {{----------------------------------- */
-                /* 2011-11-14 */
-                /* support adjusting colors while playing video */
-                bool                        mVppGate;
-                int                         mLumaSharp;
-                int                         mChromaSharp;
-                int                         mWhiteExtend;
-                int                         mBlackExtend;
-                bool                        mGlobalSubGate;  // 2012-03-12, add the global interfaces to control the subtitle gate
-                /* add by Gary. end   -----------------------------------}} */
-                
-                /*Start by Bevis. Detect http data source from other application.*/
-                wp<Client> mDetectClient;
-                /*Start by Bevis. Detect http data source from other application.*/
-
-                /*Add by eric_wang. record hdmi state, 20130318 */
-                static int                  mHdmiPlugged;   //1:hdmi plugin, 0:hdmi plugout
-                /*Add by eric_wang. record hdmi state, 20130318, end ---------- */
 };
 
 // ----------------------------------------------------------------------------

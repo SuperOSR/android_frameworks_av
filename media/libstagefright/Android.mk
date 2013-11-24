@@ -1,8 +1,7 @@
 LOCAL_PATH:= $(call my-dir)
 include $(CLEAR_VARS)
 
-#include frameworks/av/media/libstagefright/codecs/common/Config.mk
-include $(LOCAL_PATH)/../CedarX-Projects/Config.mk
+include frameworks/av/media/libstagefright/codecs/common/Config.mk
 
 LOCAL_SRC_FILES:=                         \
         ACodec.cpp                        \
@@ -20,19 +19,20 @@ LOCAL_SRC_FILES:=                         \
         ESDS.cpp                          \
         FileSource.cpp                    \
         FLACExtractor.cpp                 \
-        FragmentedMP4Extractor.cpp        \
         HTTPBase.cpp                      \
         JPEGSource.cpp                    \
         MP3Extractor.cpp                  \
         MPEG2TSWriter.cpp                 \
         MPEG4Extractor.cpp                \
         MPEG4Writer.cpp                   \
+        MediaAdapter.cpp                  \
         MediaBuffer.cpp                   \
         MediaBufferGroup.cpp              \
         MediaCodec.cpp                    \
         MediaCodecList.cpp                \
         MediaDefs.cpp                     \
         MediaExtractor.cpp                \
+        MediaMuxer.cpp                    \
         MediaSource.cpp                   \
         MetaData.cpp                      \
         NuCachedSource2.cpp               \
@@ -79,7 +79,6 @@ LOCAL_SHARED_LIBRARIES := \
         libicuuc \
         liblog \
         libmedia \
-        libmedia_native \
         libsonivox \
         libssl \
         libstagefright_omx \
@@ -96,17 +95,11 @@ LOCAL_STATIC_LIBRARIES := \
         libstagefright_matroska \
         libstagefright_timedtext \
         libvpx \
+        libwebm \
         libstagefright_mpeg2ts \
+        libstagefright_httplive \
         libstagefright_id3 \
         libFLAC \
-
-ifeq ($(CEDARX_DEBUG_FRAMEWORK),Y)
-LOCAL_STATIC_LIBRARIES += libstagefright_httplive_opt
-else
-LOCAL_LDFLAGS += \
-	$(CEDARX_TOP)/../CedarAndroidLib/$(CEDARX_PREBUILD_LIB_PATH)/libstagefright_httplive_opt.a
-endif
-      
 
 LOCAL_SRC_FILES += \
         chromium_http_stub.cpp

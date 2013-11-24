@@ -68,7 +68,6 @@ struct MediaSource : public virtual RefBase {
             SEEK_NEXT_SYNC,
             SEEK_CLOSEST_SYNC,
             SEEK_CLOSEST,
-            SEEK_VENDOR_OPT = 100,
         };
 
         ReadOptions();

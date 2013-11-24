@@ -20,13 +20,12 @@
 
 #include "ARTSPConnection.h"
 
-#include <cutils/properties.h>
-
 #include <media/stagefright/foundation/ABuffer.h>
 #include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/foundation/AMessage.h>
 #include <media/stagefright/foundation/base64.h>
 #include <media/stagefright/MediaErrors.h>
+#include <media/stagefright/Utils.h>
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -41,6 +40,10 @@ namespace android {
 // static
 const int64_t ARTSPConnection::kSelectTimeoutUs = 1000ll;
 
+// static
+const AString ARTSPConnection::sUserAgent =
+    StringPrintf("User-Agent: %s\r\n", MakeUserAgent().c_str());
+
 ARTSPConnection::ARTSPConnection(bool uidValid, uid_t uid)
     : mUIDValid(uidValid),
       mUID(uid),
@@ -50,7 +53,6 @@ ARTSPConnection::ARTSPConnection(bool uidValid, uid_t uid)
       mConnectionID(0),
       mNextCSeq(0),
       mReceiveResponseEventPending(false) {
-    MakeUserAgent(&mUserAgent);
 }
 
 ARTSPConnection::~ARTSPConnection() {
@@ -481,7 +483,6 @@ void ARTSPConnection::onReceiveResponse() {
     FD_SET(mSocket, &rs);
 
     int res = select(mSocket + 1, &rs, NULL, NULL, &tv);
-    CHECK_GE(res, 0);
 
     if (res == 1) {
         MakeSocketBlocking(mSocket, true);
@@ -562,6 +563,9 @@ bool ARTSPConnection::receiveLine(AString *line) {
 
         if (sawCR && c == '\n') {
             line->erase(line->size() - 1, 1);
+            return true;
+        } else if (c == '\n') {
+            // some reponse line ended with '\n', instead of '\r\n'.
             return true;
         }
 
@@ -830,6 +834,7 @@ status_t ARTSPConnection::findPendingRequest(
 
     if (i < 0) {
         // This is an unsolicited server->client message.
+        *index = -1;
         return OK;
     }
 
@@ -1031,27 +1036,12 @@ void ARTSPConnection::addAuthentication(AString *request) {
 #endif
 }
 
-// static
-void ARTSPConnection::MakeUserAgent(AString *userAgent) {
-    userAgent->clear();
-    userAgent->setTo("User-Agent: stagefright/1.1 (Linux;Android ");
-
-#if (PROPERTY_VALUE_MAX < 8)
-#error "PROPERTY_VALUE_MAX must be at least 8"
-#endif
-
-    char value[PROPERTY_VALUE_MAX];
-    property_get("ro.build.version.release", value, "Unknown");
-    userAgent->append(value);
-    userAgent->append(")\r\n");
-}
-
 void ARTSPConnection::addUserAgent(AString *request) const {
     // Find the boundary between headers and the body.
     ssize_t i = request->find("\r\n\r\n");
     CHECK_GE(i, 0);
 
-    request->insert(mUserAgent, i + 2);
+    request->insert(sUserAgent, i + 2);
 }
 
 }  // namespace android

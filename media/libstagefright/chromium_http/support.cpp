@@ -36,18 +36,16 @@
 #include "include/ChromiumHTTPDataSource.h"
 
 #include <cutils/log.h>
-#include <cutils/properties.h>
 #include <media/stagefright/MediaErrors.h>
+#include <media/stagefright/Utils.h>
 #include <string>
 
 namespace android {
 
 static Mutex gNetworkThreadLock;
 static base::Thread *gNetworkThread = NULL;
-static scoped_refptr<net::URLRequestContext> gReqContext;
+static scoped_refptr<SfRequestContext> gReqContext;
 static scoped_ptr<net::NetworkChangeNotifier> gNetworkChangeNotifier;
-static std::string gIpadUAString = "AppleCoreMedia/1.0.0.9A405 (iPad; U; CPU OS 5_0_1 like Mac OS X; zh_cn)";
-static int gIpadUAEnable = 0;
 
 bool logMessageHandler(
         int severity,
@@ -152,25 +150,13 @@ uint32 SfNetLog::NextID() {
 }
 
 net::NetLog::LogLevel SfNetLog::GetLogLevel() const {
-    return LOG_ALL;
+    return LOG_BASIC;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
 SfRequestContext::SfRequestContext() {
-    AString ua;
-    ua.append("stagefright/1.2 (Linux;Android ");
-
-#if (PROPERTY_VALUE_MAX < 8)
-#error "PROPERTY_VALUE_MAX must be at least 8"
-#endif
-
-    char value[PROPERTY_VALUE_MAX];
-    property_get("ro.build.version.release", value, "Unknown");
-    ua.append(value);
-    ua.append(")");
-
-    mUserAgent = ua.c_str();
+    mUserAgent = MakeUserAgent().c_str();
 
     set_net_log(new SfNetLog());
 
@@ -183,8 +169,10 @@ SfRequestContext::SfRequestContext() {
     set_ssl_config_service(
         net::SSLConfigService::CreateSystemSSLConfigService());
 
+    mProxyConfigService = new net::ProxyConfigServiceAndroid;
+
     set_proxy_service(net::ProxyService::CreateWithoutProxyResolver(
-        new net::ProxyConfigServiceAndroid, net_log()));
+        mProxyConfigService, net_log()));
 
     set_http_transaction_factory(new net::HttpCache(
             host_resolver(),
@@ -202,12 +190,32 @@ SfRequestContext::SfRequestContext() {
 }
 
 const std::string &SfRequestContext::GetUserAgent(const GURL &url) const {
-    if(!gIpadUAEnable) {
-		return mUserAgent;
-	}
-	else {
-		return gIpadUAString;
-	}
+    return mUserAgent;
+}
+
+status_t SfRequestContext::updateProxyConfig(
+        const char *host, int32_t port, const char *exclusionList) {
+    Mutex::Autolock autoLock(mProxyConfigLock);
+
+    if (host == NULL || *host == '\0') {
+        MY_LOGV("updateProxyConfig NULL");
+
+        std::string proxy;
+        std::string exList;
+        mProxyConfigService->UpdateProxySettings(proxy, exList);
+    } else {
+#if !defined(LOG_NDEBUG) || LOG_NDEBUG == 0
+        LOG_PRI(ANDROID_LOG_VERBOSE, LOG_TAG,
+                "updateProxyConfig %s:%d, exclude '%s'",
+                host, port, exclusionList);
+#endif
+
+        std::string proxy = StringPrintf("%s:%d", host, port).c_str();
+        std::string exList = exclusionList;
+        mProxyConfigService->UpdateProxySettings(proxy, exList);
+    }
+
+    return OK;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -238,12 +246,16 @@ SfDelegate::~SfDelegate() {
     CHECK(mURLRequest == NULL);
 }
 
-void SfDelegate::setOwner(ChromiumHTTPDataSource *owner) {
-    mOwner = owner;
+// static
+status_t SfDelegate::UpdateProxyConfig(
+        const char *host, int32_t port, const char *exclusionList) {
+    InitializeNetworkThreadIfNecessary();
+
+    return gReqContext->updateProxyConfig(host, port, exclusionList);
 }
 
-void SfDelegate::setUA(int ua) {
-	gIpadUAEnable = ua;
+void SfDelegate::setOwner(ChromiumHTTPDataSource *owner) {
+    mOwner = owner;
 }
 
 void SfDelegate::setUID(uid_t uid) {
@@ -257,12 +269,6 @@ bool SfDelegate::getUID(uid_t *uid) const {
 void SfDelegate::OnReceivedRedirect(
             net::URLRequest *request, const GURL &new_url, bool *defer_redirect) {
     MY_LOGV("OnReceivedRedirect");
-    //* add by chenxiaochuan for QQ live stream.
-    mOwner->setRedirectHost(new_url.host().c_str());
-    mOwner->setRedirectPort(new_url.port().c_str());
-    mOwner->setRedirectPath(new_url.path().c_str());
-    mOwner->setRedirectSpec(new_url.possibly_invalid_spec().c_str());
-    //* end.
 }
 
 void SfDelegate::OnAuthRequired(

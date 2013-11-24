@@ -886,27 +886,7 @@ M4OSA_ERR VideoEditorVideoEncoder_processOutputBuffer(
         if ( Cts < pEncoderContext->mLastCTS ) {
             ALOGV("VideoEncoder_processOutputBuffer WARNING : Cts is going "
             "backwards %d < %d", Cts, pEncoderContext->mLastCTS);
-            //goto cleanUp;
-
-			switch( pEncoderContext->mCodecParams->FrameRate ) {
-		        case M4ENCODER_k5_FPS:    Cts = pEncoderContext->mLastCTS + 500/5;  break;
-		        case M4ENCODER_k7_5_FPS:  Cts = pEncoderContext->mLastCTS + 500/8;  break;
-		        case M4ENCODER_k10_FPS:   Cts = pEncoderContext->mLastCTS + 500/10; break;
-		        case M4ENCODER_k12_5_FPS: Cts = pEncoderContext->mLastCTS + 500/13; break;
-		        case M4ENCODER_k15_FPS:   Cts = pEncoderContext->mLastCTS + 500/15; break;
-		        case M4ENCODER_k20_FPS:   Cts = pEncoderContext->mLastCTS + 500/20; break;
-		        case M4ENCODER_k25_FPS:   Cts = pEncoderContext->mLastCTS + 500/25; break;
-		        case M4ENCODER_k30_FPS:   Cts = pEncoderContext->mLastCTS + 500/30; break;
-		        case M4ENCODER_kVARIABLE_FPS:
-		            Cts = pEncoderContext->mLastCTS + 500/30; break;;
-		          break;
-		        case M4ENCODER_kUSE_TIMESCALE:
-		            Cts = pEncoderContext->mLastCTS + 500/30; break;
-		            break;
-		        default:
-					Cts = pEncoderContext->mLastCTS + 500/30; break;
-		            break;
-	    	}
+            goto cleanUp;
         }
         ALOGV("VideoEditorVideoEncoder_processOutputBuffer : %d %d",
             Cts, pEncoderContext->mLastCTS);
@@ -1123,8 +1103,7 @@ M4OSA_ERR VideoEditorVideoEncoder_stop(M4ENCODER_Context pContext) {
     if ( (BUFFERING | READING) & pEncoderContext->mState ) {
         while (1)  {
             MediaBuffer *outputBuffer =
-                // pEncoderContext->mPuller->getBufferBlocking();
-                pEncoderContext->mPuller->getBufferNonBlocking();	// star modify
+                pEncoderContext->mPuller->getBufferBlocking();
 
             if (outputBuffer == NULL) break;
 

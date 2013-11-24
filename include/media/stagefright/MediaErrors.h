@@ -41,7 +41,6 @@ enum {
     INFO_FORMAT_CHANGED    = MEDIA_ERROR_BASE - 12,
     INFO_DISCONTINUITY     = MEDIA_ERROR_BASE - 13,
     INFO_OUTPUT_BUFFERS_CHANGED = MEDIA_ERROR_BASE - 14,
-    INFO_VENDOR_LEAF_ATOM  = -1500,
 
     // The following constant values should be in sync with
     // drm/drm_framework_common.h
@@ -55,6 +54,8 @@ enum {
     ERROR_DRM_DECRYPT                       = DRM_ERROR_BASE - 5,
     ERROR_DRM_CANNOT_HANDLE                 = DRM_ERROR_BASE - 6,
     ERROR_DRM_TAMPER_DETECTED               = DRM_ERROR_BASE - 7,
+    ERROR_DRM_NOT_PROVISIONED               = DRM_ERROR_BASE - 8,
+    ERROR_DRM_DEVICE_REVOKED                = DRM_ERROR_BASE - 9,
 
     ERROR_DRM_VENDOR_MAX                    = DRM_ERROR_BASE - 500,
     ERROR_DRM_VENDOR_MIN                    = DRM_ERROR_BASE - 999,

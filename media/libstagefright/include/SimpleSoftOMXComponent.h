@@ -71,6 +71,7 @@ protected:
 
     virtual void onPortFlushCompleted(OMX_U32 portIndex);
     virtual void onPortEnableCompleted(OMX_U32 portIndex, bool enabled);
+    virtual void onReset();
 
     PortInfo *editPortInfo(OMX_U32 portIndex);
 
@@ -102,9 +103,6 @@ private:
 
     virtual OMX_ERRORTYPE setParameter(
             OMX_INDEXTYPE index, const OMX_PTR params);
-
-    virtual OMX_ERRORTYPE getExtensionIndex(
-            const char *name, OMX_INDEXTYPE *index);
 
     virtual OMX_ERRORTYPE useBuffer(
             OMX_BUFFERHEADERTYPE **buffer,

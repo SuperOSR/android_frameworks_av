@@ -35,7 +35,9 @@ struct LiveSession : public AHandler {
         // Don't log any URLs.
         kFlagIncognito = 1,
     };
-    LiveSession(uint32_t flags = 0, bool uidValid = false, uid_t uid = 0);
+    LiveSession(
+            const sp<AMessage> &notify,
+            uint32_t flags = 0, bool uidValid = false, uid_t uid = 0);
 
     sp<DataSource> getDataSource();
 
@@ -46,12 +48,18 @@ struct LiveSession : public AHandler {
     void disconnect();
 
     // Blocks until seek is complete.
-    int64_t seekTo(int64_t timeUs);
+    void seekTo(int64_t timeUs);
 
     status_t getDuration(int64_t *durationUs) const;
 
     bool isSeekable() const;
     bool hasDynamicDuration() const;
+
+    // Posted notification's "what" field will carry one of the following:
+    enum {
+        kWhatPrepared,
+        kWhatPreparationFailed,
+    };
 
 protected:
     virtual ~LiveSession();
@@ -61,7 +69,7 @@ protected:
 private:
     enum {
         kMaxNumQueuedFragments = 3,
-        kMaxNumRetries         = 10,
+        kMaxNumRetries         = 5,
     };
 
     enum {
@@ -76,9 +84,12 @@ private:
         unsigned long mBandwidth;
     };
 
+    sp<AMessage> mNotify;
     uint32_t mFlags;
     bool mUIDValid;
     uid_t mUID;
+
+    bool mInPreparationPhase;
 
     sp<LiveDataSource> mDataSource;
 
@@ -106,25 +117,7 @@ private:
     bool mSeekDone;
     bool mDisconnectPending;
 
-    bool mTimeout;
-    AString *mCurUri;
-
     int32_t mMonitorQueueGeneration;
-
-    int64_t								mSeekTargetStartUs;
-
-	bool								mHasSeekMsg;
-	bool								mLastDownloadTobeContinue;
-	int32_t								mLastDownloadOffset;
-	int32_t								mLastSubSeqNumber;
-
-	int32_t								mLastSeqNumberBase;
-
-
-	bool								mIsPlaylistRedirected;
-	char*								mPlaylistRedirectURL;
-    bool                                mDataSourceConnected;
-    sp<ABuffer>                         mBufferForFetchFile;
 
     enum RefreshState {
         INITIAL_MINIMUM_RELOAD_DELAY,
@@ -145,8 +138,6 @@ private:
     status_t fetchFile(
             const char *url, sp<ABuffer> *out,
             int64_t range_offset = 0, int64_t range_length = -1);
-    
-    int32_t	 fetchTsData(const char* url, bool continueLast);
 
     sp<M3UParser> fetchPlaylist(const char *url, bool *unchanged);
     size_t getBandwidthIndex();
@@ -163,6 +154,8 @@ private:
     // Returns the media time in us of the segment specified by seqNumber.
     // This is computed by summing the durations of all segments before it.
     int64_t getSegmentStartTimeUs(int32_t seqNumber) const;
+
+    void signalEOS(status_t err);
 
     DISALLOW_EVIL_CONSTRUCTORS(LiveSession);
 };

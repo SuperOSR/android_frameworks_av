@@ -43,7 +43,10 @@ struct ACodec : public AHierarchicalStateMachine {
         kWhatError               = 'erro',
         kWhatComponentAllocated  = 'cAll',
         kWhatComponentConfigured = 'cCon',
+        kWhatInputSurfaceCreated = 'isfc',
+        kWhatSignaledInputEOS    = 'seos',
         kWhatBuffersAllocated    = 'allc',
+        kWhatOMXDied             = 'OMXd',
     };
 
     ACodec();
@@ -54,13 +57,15 @@ struct ACodec : public AHierarchicalStateMachine {
     void signalResume();
     void initiateShutdown(bool keepComponentAllocated = false);
 
+    void signalSetParameters(const sp<AMessage> &msg);
+    void signalEndOfInputStream();
+
     void initiateAllocateComponent(const sp<AMessage> &msg);
     void initiateConfigureComponent(const sp<AMessage> &msg);
+    void initiateCreateInputSurface();
     void initiateStart();
 
     void signalRequestIDRFrame();
-
-    status_t setEncoderBitrate(int32_t bitrate);
 
     struct PortDescription : public RefBase {
         size_t countBuffers();
@@ -93,6 +98,7 @@ private:
     struct ExecutingToIdleState;
     struct IdleToLoadedState;
     struct FlushingState;
+    struct DeathNotifier;
 
     enum {
         kWhatSetup                   = 'setu',
@@ -105,8 +111,11 @@ private:
         kWhatDrainDeferredMessages   = 'drai',
         kWhatAllocateComponent       = 'allo',
         kWhatConfigureComponent      = 'conf',
+        kWhatCreateInputSurface      = 'cisf',
+        kWhatSignalEndOfInputStream  = 'eois',
         kWhatStart                   = 'star',
         kWhatRequestIDRFrame         = 'ridr',
+        kWhatSetParameters           = 'setP',
     };
 
     enum {
@@ -164,9 +173,6 @@ private:
     sp<MemoryDealer> mDealer[2];
 
     sp<ANativeWindow> mNativeWindow;
-
-    sp<ANativeWindow> mNativeWindowSoft;
-    int32_t mVideoWidth,mVideoHeight;
 
     Vector<BufferInfo> mBuffers[2];
     bool mPortEOS[2];
@@ -233,7 +239,7 @@ private:
             OMX_U32 portIndex, OMX_AUDIO_CODINGTYPE desiredFormat);
 
     status_t setupAMRCodec(bool encoder, bool isWAMR, int32_t bitRate);
-    status_t setupG711Codec(bool encoder, int32_t numChannels, int32_t sampleRate);
+    status_t setupG711Codec(bool encoder, int32_t numChannels);
 
     status_t setupFlacCodec(
             bool encoder, int32_t numChannels, int32_t sampleRate, int32_t compressionLevel);
@@ -258,23 +264,31 @@ private:
 
     status_t pushBlankBuffersToNativeWindow();
 
-    // Returns true iff all buffers on the given port have status OWNED_BY_US.
+    // Returns true iff all buffers on the given port have status
+    // OWNED_BY_US or OWNED_BY_NATIVE_WINDOW.
     bool allYourBuffersAreBelongToUs(OMX_U32 portIndex);
 
     bool allYourBuffersAreBelongToUs();
 
+    void waitUntilAllPossibleNativeWindowBuffersAreReturnedToUs();
+
     size_t countBuffersOwnedByComponent(OMX_U32 portIndex) const;
+    size_t countBuffersOwnedByNativeWindow() const;
 
     void deferMessage(const sp<AMessage> &msg);
     void processDeferredMessages();
 
-    void sendFormatChange();
+    void sendFormatChange(const sp<AMessage> &reply);
 
     void signalError(
             OMX_ERRORTYPE error = OMX_ErrorUndefined,
             status_t internalError = UNKNOWN_ERROR);
 
     status_t requestIDRFrame();
+    status_t setParameters(const sp<AMessage> &params);
+
+    // Send EOS on input stream.
+    void onSignalEndOfInputStream();
 
     DISALLOW_EVIL_CONSTRUCTORS(ACodec);
 };

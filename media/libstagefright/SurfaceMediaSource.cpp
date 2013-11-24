@@ -298,16 +298,9 @@ status_t SurfaceMediaSource::read( MediaBuffer **buffer,
             // wait for a buffer to be queued
             mFrameAvailableCondition.wait(mMutex);
         } else if (err == OK) {
-            // make sure buffer is ready and safe.
-            if (item.mFence.get()) {
-                //nsecs_t begin = systemTime(CLOCK_MONOTONIC);
-                err = item.mFence->wait(200);//200ms
-                //nsecs_t now = systemTime(CLOCK_MONOTONIC);
-                //ALOGV("###wait %lld ms",(now-begin)/1000000);
-                if (err != OK) {
-                    ALOGE("Failed to wait for fence of acquired buffer: %s (%d)",
-                            strerror(-err), err);
-                }
+            err = item.mFence->waitForever("SurfaceMediaSource::read");
+            if (err) {
+                ALOGW("read: failed to wait for buffer fence: %d", err);
             }
 
             // First time seeing the buffer?  Added it to the SMS slot

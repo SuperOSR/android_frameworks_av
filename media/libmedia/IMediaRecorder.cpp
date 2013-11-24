@@ -23,7 +23,7 @@
 #include <media/IMediaRecorderClient.h>
 #include <media/IMediaRecorder.h>
 #include <gui/Surface.h>
-#include <gui/ISurfaceTexture.h>
+#include <gui/IGraphicBufferProducer.h>
 #include <unistd.h>
 
 
@@ -52,9 +52,7 @@ enum {
     SET_PREVIEW_SURFACE,
     SET_CAMERA,
     SET_LISTENER,
-
-    QUEUE_BUFFER = RELEASE + 200,
-    GET_ONE_BSFRAME,
+    SET_CLIENT_NAME
 };
 
 class BpMediaRecorder: public BpInterface<IMediaRecorder>
@@ -76,7 +74,7 @@ public:
         return reply.readInt32();
     }
 
-    sp<ISurfaceTexture> querySurfaceMediaSource()
+    sp<IGraphicBufferProducer> querySurfaceMediaSource()
     {
         ALOGV("Query SurfaceMediaSource");
         Parcel data, reply;
@@ -86,28 +84,15 @@ public:
         if (returnedNull) {
             return NULL;
         }
-        return interface_cast<ISurfaceTexture>(reply.readStrongBinder());
+        return interface_cast<IGraphicBufferProducer>(reply.readStrongBinder());
     }
 
-    status_t queueBuffer(int index, int addr_y, int addr_c, int64_t timestamp)
-    {
-		ALOGV("queueBuffer(%d)", index);
-		Parcel data, reply;
-		data.writeInterfaceToken(IMediaRecorder::getInterfaceDescriptor());
-		data.writeInt32(index);
-		data.writeInt32(addr_y);
-		data.writeInt32(addr_c);
-		data.writeInt64(timestamp);
-		remote()->transact(QUEUE_BUFFER, data, &reply);
-		return reply.readInt32();
-    }
-    
-    status_t setPreviewSurface(const sp<Surface>& surface)
+    status_t setPreviewSurface(const sp<IGraphicBufferProducer>& surface)
     {
         ALOGV("setPreviewSurface(%p)", surface.get());
         Parcel data, reply;
         data.writeInterfaceToken(IMediaRecorder::getInterfaceDescriptor());
-        Surface::writeToParcel(surface, &data);
+        data.writeStrongBinder(surface->asBinder());
         remote()->transact(SET_PREVIEW_SURFACE, data, &reply);
         return reply.readInt32();
     }
@@ -233,6 +218,16 @@ public:
         return reply.readInt32();
     }
 
+    status_t setClientName(const String16& clientName)
+    {
+        ALOGV("setClientName(%s)", String8(clientName).string());
+        Parcel data, reply;
+        data.writeInterfaceToken(IMediaRecorder::getInterfaceDescriptor());
+        data.writeString16(clientName);
+        remote()->transact(SET_CLIENT_NAME, data, &reply);
+        return reply.readInt32();
+    }
+
     status_t prepare()
     {
         ALOGV("prepare");
@@ -251,20 +246,6 @@ public:
         *max = reply.readInt32();
         return reply.readInt32();
     }
-
-    sp<IMemory> getOneBsFrame(int mode)
-	{
-		ALOGV("getMaxAmplitude");
-		Parcel data, reply;
-		data.writeInterfaceToken(IMediaRecorder::getInterfaceDescriptor());
-		data.writeInt32(mode);
-		remote()->transact(GET_ONE_BSFRAME, data, &reply);
-		status_t ret = reply.readInt32();
-		if (ret != NO_ERROR) {
-			return NULL;
-		}
-		return interface_cast<IMemory>(reply.readStrongBinder());
-	}
 
     status_t start()
     {
@@ -371,19 +352,6 @@ status_t BnMediaRecorder::onTransact(
             reply->writeInt32(ret);
             return NO_ERROR;
         } break;
-        case GET_ONE_BSFRAME: {
-        	ALOGV("GET_ONE_BSFRAME");
-			CHECK_INTERFACE(IMediaRecorder, data, reply);
-			int mode = data.readInt32();
-            sp<IMemory> bitmap = getOneBsFrame(mode);
-            if (bitmap != 0) {  // Don't send NULL across the binder interface
-                reply->writeInt32(NO_ERROR);
-                reply->writeStrongBinder(bitmap->asBinder());
-            } else {
-                reply->writeInt32(UNKNOWN_ERROR);
-            }
-			return NO_ERROR;
-        } break;
         case SET_VIDEO_SOURCE: {
             ALOGV("SET_VIDEO_SOURCE");
             CHECK_INTERFACE(IMediaRecorder, data, reply);
@@ -466,10 +434,16 @@ status_t BnMediaRecorder::onTransact(
             reply->writeInt32(setListener(listener));
             return NO_ERROR;
         } break;
+        case SET_CLIENT_NAME: {
+            ALOGV("SET_CLIENT_NAME");
+            CHECK_INTERFACE(IMediaRecorder, data, reply);
+            reply->writeInt32(setClientName(data.readString16()));
+            return NO_ERROR;
+        }
         case SET_PREVIEW_SURFACE: {
             ALOGV("SET_PREVIEW_SURFACE");
             CHECK_INTERFACE(IMediaRecorder, data, reply);
-            sp<Surface> surface = Surface::readFromParcel(data);
+            sp<IGraphicBufferProducer> surface = interface_cast<IGraphicBufferProducer>(data.readStrongBinder());
             reply->writeInt32(setPreviewSurface(surface));
             return NO_ERROR;
         } break;
@@ -487,23 +461,13 @@ status_t BnMediaRecorder::onTransact(
             CHECK_INTERFACE(IMediaRecorder, data, reply);
             // call the mediaserver side to create
             // a surfacemediasource
-            sp<ISurfaceTexture> surfaceMediaSource = querySurfaceMediaSource();
+            sp<IGraphicBufferProducer> surfaceMediaSource = querySurfaceMediaSource();
             // The mediaserver might have failed to create a source
             int returnedNull= (surfaceMediaSource == NULL) ? 1 : 0 ;
             reply->writeInt32(returnedNull);
             if (!returnedNull) {
                 reply->writeStrongBinder(surfaceMediaSource->asBinder());
             }
-            return NO_ERROR;
-        } break;
-        case QUEUE_BUFFER: {
-        	ALOGV("QUEUE_BUFFER");
-			CHECK_INTERFACE(IMediaRecorder, data, reply);
-			int32_t index  = data.readInt32();
-			int32_t addr_y = data.readInt32();
-			int32_t addr_c = data.readInt32();
-			int64_t timestamp = data.readInt64();
-			reply->writeInt32(queueBuffer(index, addr_y, addr_c, timestamp));
             return NO_ERROR;
         } break;
         default:

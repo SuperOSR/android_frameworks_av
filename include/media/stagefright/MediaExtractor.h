@@ -35,8 +35,7 @@ public:
     virtual sp<MediaSource> getTrack(size_t index) = 0;
 
     enum GetTrackMetaDataFlags {
-        kIncludeExtensiveMetaData = 1,
-        kIncludeExtensiveMetaDataBitrate = 256,
+        kIncludeExtensiveMetaData = 1
     };
     virtual sp<MetaData> getTrackMetaData(
             size_t index, uint32_t flags = 0) = 0;
@@ -68,7 +67,7 @@ public:
     }
 
 protected:
-    MediaExtractor() {}
+    MediaExtractor() : mIsDrm(false) {}
     virtual ~MediaExtractor() {}
 
 private:

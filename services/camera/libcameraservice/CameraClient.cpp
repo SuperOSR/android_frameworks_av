@@ -18,7 +18,6 @@
 //#define LOG_NDEBUG 0
 
 #include <cutils/properties.h>
-#include <gui/SurfaceTextureClient.h>
 #include <gui/Surface.h>
 
 #include "CameraClient.h"
@@ -34,15 +33,14 @@ static int getCallingPid() {
     return IPCThreadState::self()->getCallingPid();
 }
 
-static int getCallingUid() {
-    return IPCThreadState::self()->getCallingUid();
-}
-
 CameraClient::CameraClient(const sp<CameraService>& cameraService,
         const sp<ICameraClient>& cameraClient,
-        int cameraId, int cameraFacing, int clientPid, int servicePid):
-        Client(cameraService, cameraClient,
-                cameraId, cameraFacing, clientPid, servicePid)
+        const String16& clientPackageName,
+        int cameraId, int cameraFacing,
+        int clientPid, int clientUid,
+        int servicePid):
+        Client(cameraService, cameraClient, clientPackageName,
+                cameraId, cameraFacing, clientPid, clientUid, servicePid)
 {
     int callingPid = getCallingPid();
     LOG1("CameraClient::CameraClient E (pid %d, id %d)", callingPid, cameraId);
@@ -62,10 +60,17 @@ CameraClient::CameraClient(const sp<CameraService>& cameraService,
 
 status_t CameraClient::initialize(camera_module_t *module) {
     int callingPid = getCallingPid();
+    status_t res;
+
     LOG1("CameraClient::initialize E (pid %d, id %d)", callingPid, mCameraId);
 
+    // Verify ops permissions
+    res = startCameraOps();
+    if (res != OK) {
+        return res;
+    }
+
     char camera_device_name[10];
-    status_t res;
     snprintf(camera_device_name, sizeof(camera_device_name), "%d", mCameraId);
 
     mHardware = new CameraHardwareInterface(camera_device_name);
@@ -84,9 +89,7 @@ status_t CameraClient::initialize(camera_module_t *module) {
 
     // Enable zoom, error, focus, and metadata messages by default
     enableMsgType(CAMERA_MSG_ERROR | CAMERA_MSG_ZOOM | CAMERA_MSG_FOCUS |
-                  CAMERA_MSG_PREVIEW_METADATA | CAMERA_MSG_FOCUS_MOVE |
-                  CAMERA_MSG_CONTINUOUSSNAP | CAMERA_MSG_SNAP | CAMERA_MSG_SNAP_THUMB |
-                  CAMERA_MSG_SNAP_FD); //enable the continuoussnap and singlesnap message by fuqiang
+                  CAMERA_MSG_PREVIEW_METADATA | CAMERA_MSG_FOCUS_MOVE);
 
     LOG1("CameraClient::initialize X (pid %d, id %d)", callingPid, mCameraId);
     return OK;
@@ -114,7 +117,7 @@ status_t CameraClient::dump(int fd, const Vector<String16>& args) {
 
     size_t len = snprintf(buffer, SIZE, "Client[%d] (%p) PID: %d\n",
             mCameraId,
-            getCameraClient()->asBinder().get(),
+            getRemoteCallback()->asBinder().get(),
             mClientPid);
     len = (len > SIZE - 1) ? SIZE - 1 : len;
     write(fd, buffer, len);
@@ -170,10 +173,10 @@ status_t CameraClient::unlock() {
             return INVALID_OPERATION;
         }
         mClientPid = 0;
-        LOG1("clear mCameraClient (pid %d)", callingPid);
+        LOG1("clear mRemoteCallback (pid %d)", callingPid);
         // we need to remove the reference to ICameraClient so that when the app
         // goes away, the reference count goes to 0.
-        mCameraClient.clear();
+        mRemoteCallback.clear();
     }
     return result;
 }
@@ -190,14 +193,15 @@ status_t CameraClient::connect(const sp<ICameraClient>& client) {
         return EBUSY;
     }
 
-    if (mCameraClient != 0 && (client->asBinder() == mCameraClient->asBinder())) {
+    if (mRemoteCallback != 0 &&
+        (client->asBinder() == mRemoteCallback->asBinder())) {
         LOG1("Connect to the same client");
         return NO_ERROR;
     }
 
     mPreviewCallbackFlag = CAMERA_FRAME_CALLBACK_FLAG_NOOP;
     mClientPid = callingPid;
-    mCameraClient = client;
+    mRemoteCallback = client;
 
     LOG1("connect X (pid %d)", callingPid);
     return NO_ERROR;
@@ -308,22 +312,22 @@ status_t CameraClient::setPreviewWindow(const sp<IBinder>& binder,
 status_t CameraClient::setPreviewDisplay(const sp<Surface>& surface) {
     LOG1("setPreviewDisplay(%p) (pid %d)", surface.get(), getCallingPid());
 
-    sp<IBinder> binder(surface != 0 ? surface->asBinder() : 0);
+    sp<IBinder> binder(surface != 0 ? surface->getIGraphicBufferProducer()->asBinder() : 0);
     sp<ANativeWindow> window(surface);
     return setPreviewWindow(binder, window);
 }
 
-// set the SurfaceTexture that the preview will use
+// set the SurfaceTextureClient that the preview will use
 status_t CameraClient::setPreviewTexture(
-        const sp<ISurfaceTexture>& surfaceTexture) {
-    LOG1("setPreviewTexture(%p) (pid %d)", surfaceTexture.get(),
+        const sp<IGraphicBufferProducer>& bufferProducer) {
+    LOG1("setPreviewTexture(%p) (pid %d)", bufferProducer.get(),
             getCallingPid());
 
     sp<IBinder> binder;
     sp<ANativeWindow> window;
-    if (surfaceTexture != 0) {
-        binder = surfaceTexture->asBinder();
-        window = new SurfaceTextureClient(surfaceTexture);
+    if (bufferProducer != 0) {
+        binder = bufferProducer->asBinder();
+        window = new Surface(bufferProducer);
     }
     return setPreviewWindow(binder, window);
 }
@@ -420,9 +424,7 @@ status_t CameraClient::startRecordingMode() {
 
     // start recording mode
     enableMsgType(CAMERA_MSG_VIDEO_FRAME);
-	if (mPlayShutterSound) {
-    	mCameraService->playSound(CameraService::SOUND_RECORDING);
-	}
+    mCameraService->playSound(CameraService::SOUND_RECORDING);
     result = mHardware->startRecording();
     if (result != NO_ERROR) {
         ALOGE("mHardware->startRecording() failed with status %d", result);
@@ -451,9 +453,7 @@ void CameraClient::stopRecording() {
 
     disableMsgType(CAMERA_MSG_VIDEO_FRAME);
     mHardware->stopRecording();
-	if (mPlayShutterSound) {
-    	mCameraService->playSound(CameraService::SOUND_RECORDING);
-	}
+    mCameraService->playSound(CameraService::SOUND_RECORDING);
 
     mPreviewBuffer.clear();
 }
@@ -549,17 +549,7 @@ status_t CameraClient::setParameters(const String8& params) {
     if (result != NO_ERROR) return result;
 
     CameraParameters p(params);
-
     return mHardware->setParameters(p);
-}
-
-status_t CameraClient::setFd(int fd) {
-    ALOGV("CameraClient setFd = %d", fd);
-    Mutex::Autolock lock(mLock);
-    status_t result = checkPidAndHardware();
-    if (result != NO_ERROR) return result;
-
-    return mHardware->setFd(dup(fd));
 }
 
 // get preview/capture parameters - key/value pairs
@@ -632,9 +622,7 @@ status_t CameraClient::sendCommand(int32_t cmd, int32_t arg1, int32_t arg2) {
         }
         return OK;
     } else if (cmd == CAMERA_CMD_PLAY_RECORDING_SOUND) {
-    	if (mPlayShutterSound) {
-        	mCameraService->playSound(CameraService::SOUND_RECORDING);
-    	}
+        mCameraService->playSound(CameraService::SOUND_RECORDING);
     } else if (cmd == CAMERA_CMD_SET_VIDEO_BUFFER_COUNT) {
         // Silently ignore this command
         return INVALID_OPERATION;
@@ -793,7 +781,7 @@ void CameraClient::handleShutter(void) {
         mCameraService->playSound(CameraService::SOUND_SHUTTER);
     }
 
-    sp<ICameraClient> c = mCameraClient;
+    sp<ICameraClient> c = mRemoteCallback;
     if (c != 0) {
         mLock.unlock();
         c->notifyCallback(CAMERA_MSG_SHUTTER, 0, 0);
@@ -824,7 +812,7 @@ void CameraClient::handlePreviewData(int32_t msgType,
     }
 
     // hold a strong pointer to the client
-    sp<ICameraClient> c = mCameraClient;
+    sp<ICameraClient> c = mRemoteCallback;
 
     // clear callback flags if no client or one-shot mode
     if (c == 0 || (mPreviewCallbackFlag & CAMERA_FRAME_CALLBACK_FLAG_ONE_SHOT_MASK)) {
@@ -854,7 +842,7 @@ void CameraClient::handlePreviewData(int32_t msgType,
 void CameraClient::handlePostview(const sp<IMemory>& mem) {
     disableMsgType(CAMERA_MSG_POSTVIEW_FRAME);
 
-    sp<ICameraClient> c = mCameraClient;
+    sp<ICameraClient> c = mRemoteCallback;
     mLock.unlock();
     if (c != 0) {
         c->dataCallback(CAMERA_MSG_POSTVIEW_FRAME, mem, NULL);
@@ -869,7 +857,7 @@ void CameraClient::handleRawPicture(const sp<IMemory>& mem) {
     size_t size;
     sp<IMemoryHeap> heap = mem->getMemory(&offset, &size);
 
-    sp<ICameraClient> c = mCameraClient;
+    sp<ICameraClient> c = mRemoteCallback;
     mLock.unlock();
     if (c != 0) {
         c->dataCallback(CAMERA_MSG_RAW_IMAGE, mem, NULL);
@@ -880,7 +868,7 @@ void CameraClient::handleRawPicture(const sp<IMemory>& mem) {
 void CameraClient::handleCompressedPicture(const sp<IMemory>& mem) {
     disableMsgType(CAMERA_MSG_COMPRESSED_IMAGE);
 
-    sp<ICameraClient> c = mCameraClient;
+    sp<ICameraClient> c = mRemoteCallback;
     mLock.unlock();
     if (c != 0) {
         c->dataCallback(CAMERA_MSG_COMPRESSED_IMAGE, mem, NULL);
@@ -890,7 +878,7 @@ void CameraClient::handleCompressedPicture(const sp<IMemory>& mem) {
 
 void CameraClient::handleGenericNotify(int32_t msgType,
     int32_t ext1, int32_t ext2) {
-    sp<ICameraClient> c = mCameraClient;
+    sp<ICameraClient> c = mRemoteCallback;
     mLock.unlock();
     if (c != 0) {
         c->notifyCallback(msgType, ext1, ext2);
@@ -899,7 +887,7 @@ void CameraClient::handleGenericNotify(int32_t msgType,
 
 void CameraClient::handleGenericData(int32_t msgType,
     const sp<IMemory>& dataPtr, camera_frame_metadata_t *metadata) {
-    sp<ICameraClient> c = mCameraClient;
+    sp<ICameraClient> c = mRemoteCallback;
     mLock.unlock();
     if (c != 0) {
         c->dataCallback(msgType, dataPtr, metadata);
@@ -908,7 +896,7 @@ void CameraClient::handleGenericData(int32_t msgType,
 
 void CameraClient::handleGenericDataTimestamp(nsecs_t timestamp,
     int32_t msgType, const sp<IMemory>& dataPtr) {
-    sp<ICameraClient> c = mCameraClient;
+    sp<ICameraClient> c = mRemoteCallback;
     mLock.unlock();
     if (c != 0) {
         c->dataCallbackTimestamp(timestamp, msgType, dataPtr);

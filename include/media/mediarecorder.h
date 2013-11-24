@@ -31,8 +31,8 @@ class Surface;
 class IMediaRecorder;
 class ICamera;
 class ICameraRecordingProxy;
-class ISurfaceTexture;
-class SurfaceTextureClient;
+class IGraphicBufferProducer;
+class Surface;
 
 typedef void (*media_completion_f)(status_t status, void *cookie);
 
@@ -40,8 +40,7 @@ enum video_source {
     VIDEO_SOURCE_DEFAULT = 0,
     VIDEO_SOURCE_CAMERA = 1,
     VIDEO_SOURCE_GRALLOC_BUFFER = 2,
-    VIDEO_SOURCE_PUSH_BUFFER = 3,
-    
+
     VIDEO_SOURCE_LIST_END  // must be last - used to validate audio source type
 };
 
@@ -67,9 +66,6 @@ enum output_format {
 
     /* H.264/AAC data encapsulated in MPEG2/TS */
     OUTPUT_FORMAT_MPEG2TS = 8,
-
-    OUTPUT_FORMAT_AWTS    = 9,
-    OUTPUT_FORMAT_RAW     = 10,
 
     OUTPUT_FORMAT_LIST_END // must be last - used to validate format type
 };
@@ -129,11 +125,6 @@ enum media_recorder_event_type {
     MEDIA_RECORDER_TRACK_EVENT_ERROR              = 100,
     MEDIA_RECORDER_TRACK_EVENT_INFO               = 101,
     MEDIA_RECORDER_TRACK_EVENT_LIST_END           = 1000,
-
-    MEDIA_RECORDER_VENDOR_EVENT_LIST_START        = 3000,
-    MEDIA_RECORDER_VENDOR_EVENT_EMPTY_BUFFER_ID   = 3000,
-    MEDIA_RECORDER_VENDOR_EVENT_BSFRAME_AVAILABLE = 3001,
-    MEDIA_RECORDER_VENDOR_EVENT_LIST_END		  = 3100,
 };
 
 /*
@@ -216,7 +207,7 @@ public:
     void        died();
     status_t    initCheck();
     status_t    setCamera(const sp<ICamera>& camera, const sp<ICameraRecordingProxy>& proxy);
-    status_t    setPreviewSurface(const sp<Surface>& surface);
+    status_t    setPreviewSurface(const sp<IGraphicBufferProducer>& surface);
     status_t    setVideoSource(int vs);
     status_t    setAudioSource(int as);
     status_t    setOutputFormat(int of);
@@ -228,6 +219,7 @@ public:
     status_t    setVideoFrameRate(int frames_per_second);
     status_t    setParameters(const String8& params);
     status_t    setListener(const sp<MediaRecorderListener>& listener);
+    status_t    setClientName(const String16& clientName);
     status_t    prepare();
     status_t    getMaxAmplitude(int* max);
     status_t    start();
@@ -237,9 +229,7 @@ public:
     status_t    close();
     status_t    release();
     void        notify(int msg, int ext1, int ext2);
-    sp<ISurfaceTexture>     querySurfaceMediaSourceFromMediaServer();
-    status_t queueBuffer(int index, int addr_y, int addr_c, int64_t timestamp);
-    sp<IMemory> getOneBsFrame(int mode);
+    sp<IGraphicBufferProducer>     querySurfaceMediaSourceFromMediaServer();
 
 private:
     void                    doCleanUp();
@@ -248,10 +238,10 @@ private:
     sp<IMediaRecorder>          mMediaRecorder;
     sp<MediaRecorderListener>   mListener;
 
-    // Reference toISurfaceTexture
+    // Reference to IGraphicBufferProducer
     // for encoding GL Frames. That is useful only when the
     // video source is set to VIDEO_SOURCE_GRALLOC_BUFFER
-    sp<ISurfaceTexture>         mSurfaceMediaSource;
+    sp<IGraphicBufferProducer>  mSurfaceMediaSource;
 
     media_recorder_states       mCurrentState;
     bool                        mIsAudioSourceSet;

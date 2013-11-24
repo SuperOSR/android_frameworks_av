@@ -24,8 +24,6 @@
 
 #include <system/audio.h>
 
-#include <CedarXRecorder.h>
-
 namespace android {
 
 class Camera;
@@ -37,7 +35,7 @@ struct MediaWriter;
 class MetaData;
 struct AudioSource;
 class MediaProfiles;
-class ISurfaceTexture;
+class IGraphicBufferProducer;
 class SurfaceMediaSource;
 
 struct StagefrightRecorder : public MediaRecorderBase {
@@ -53,11 +51,12 @@ struct StagefrightRecorder : public MediaRecorderBase {
     virtual status_t setVideoSize(int width, int height);
     virtual status_t setVideoFrameRate(int frames_per_second);
     virtual status_t setCamera(const sp<ICamera>& camera, const sp<ICameraRecordingProxy>& proxy);
-    virtual status_t setPreviewSurface(const sp<Surface>& surface);
+    virtual status_t setPreviewSurface(const sp<IGraphicBufferProducer>& surface);
     virtual status_t setOutputFile(const char *path);
     virtual status_t setOutputFile(int fd, int64_t offset, int64_t length);
     virtual status_t setParameters(const String8& params);
     virtual status_t setListener(const sp<IMediaRecorderClient>& listener);
+    virtual status_t setClientName(const String16& clientName);
     virtual status_t prepare();
     virtual status_t start();
     virtual status_t pause();
@@ -67,18 +66,17 @@ struct StagefrightRecorder : public MediaRecorderBase {
     virtual status_t getMaxAmplitude(int *max);
     virtual status_t dump(int fd, const Vector<String16>& args) const;
     // Querying a SurfaceMediaSourcer
-    virtual sp<ISurfaceTexture> querySurfaceMediaSource() const;
-    virtual status_t queueBuffer(int index, int addr_y, int addr_c, int64_t timestamp);
-    virtual	sp<IMemory> getOneBsFrame(int mode);
+    virtual sp<IGraphicBufferProducer> querySurfaceMediaSource() const;
 
 private:
     sp<ICamera> mCamera;
     sp<ICameraRecordingProxy> mCameraProxy;
-    sp<Surface> mPreviewSurface;
+    sp<IGraphicBufferProducer> mPreviewSurface;
     sp<IMediaRecorderClient> mListener;
+    String16 mClientName;
+    uid_t mClientUid;
     sp<MediaWriter> mWriter;
     int mOutputFd;
-    char *mOutputPath;
     sp<AudioSource> mAudioSourceNode;
 
     audio_source_t mAudioSource;
@@ -121,7 +119,7 @@ private:
 
     bool mStarted;
     // Needed when GLFrames are encoded.
-    // An <ISurfaceTexture> pointer
+    // An <IGraphicBufferProducer> pointer
     // will be sent to the client side using which the
     // frame buffers will be queued and dequeued
     sp<SurfaceMediaSource> mSurfaceMediaSource;
@@ -189,9 +187,6 @@ private:
     void clipNumberOfAudioChannels();
     void setDefaultProfileIfNecessary();
 
-private:    
-    CedarXRecorder * mpCedarXRecorder;
-    bool             mbHWEncoder;
 
     StagefrightRecorder(const StagefrightRecorder &);
     StagefrightRecorder &operator=(const StagefrightRecorder &);

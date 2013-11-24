@@ -22,14 +22,13 @@
 #include <sys/types.h>
 #include <binder/Parcel.h>
 #include <camera/ICamera.h>
-#include <gui/ISurfaceTexture.h>
+#include <gui/IGraphicBufferProducer.h>
 #include <gui/Surface.h>
 
 namespace android {
 
 enum {
     DISCONNECT = IBinder::FIRST_CALL_TRANSACTION,
-    SET_PREVIEW_DISPLAY,
     SET_PREVIEW_TEXTURE,
     SET_PREVIEW_CALLBACK_FLAG,
     START_PREVIEW,
@@ -38,7 +37,6 @@ enum {
     CANCEL_AUTO_FOCUS,
     TAKE_PICTURE,
     SET_PARAMETERS,
-    SET_FD,
     GET_PARAMETERS,
     SEND_COMMAND,
     CONNECT,
@@ -69,24 +67,13 @@ public:
         remote()->transact(DISCONNECT, data, &reply);
     }
 
-    // pass the buffered Surface to the camera service
-    status_t setPreviewDisplay(const sp<Surface>& surface)
-    {
-        ALOGV("setPreviewDisplay");
-        Parcel data, reply;
-        data.writeInterfaceToken(ICamera::getInterfaceDescriptor());
-        Surface::writeToParcel(surface, &data);
-        remote()->transact(SET_PREVIEW_DISPLAY, data, &reply);
-        return reply.readInt32();
-    }
-
-    // pass the buffered SurfaceTexture to the camera service
-    status_t setPreviewTexture(const sp<ISurfaceTexture>& surfaceTexture)
+    // pass the buffered IGraphicBufferProducer to the camera service
+    status_t setPreviewTexture(const sp<IGraphicBufferProducer>& bufferProducer)
     {
         ALOGV("setPreviewTexture");
         Parcel data, reply;
         data.writeInterfaceToken(ICamera::getInterfaceDescriptor());
-        sp<IBinder> b(surfaceTexture->asBinder());
+        sp<IBinder> b(bufferProducer->asBinder());
         data.writeStrongBinder(b);
         remote()->transact(SET_PREVIEW_TEXTURE, data, &reply);
         return reply.readInt32();
@@ -225,17 +212,6 @@ public:
         return reply.readInt32();
     }
 
-	//set file descriptor to camera HAL for writing file by fuqiang.
-	status_t setFd(int fd)
-    {
-        ALOGV("ICamera setFd fd = %d", fd);
-		Parcel data, reply;
-		data.writeInterfaceToken(ICamera::getInterfaceDescriptor());
-        data.writeFileDescriptor(fd);
-        remote()->transact(SET_FD, data, &reply);
-        return reply.readInt32();
-    }
-
     // get preview/capture parameters - key/value pairs
     String8 getParameters() const
     {
@@ -294,17 +270,11 @@ status_t BnCamera::onTransact(
             disconnect();
             return NO_ERROR;
         } break;
-        case SET_PREVIEW_DISPLAY: {
-            ALOGV("SET_PREVIEW_DISPLAY");
-            CHECK_INTERFACE(ICamera, data, reply);
-            sp<Surface> surface = Surface::readFromParcel(data);
-            reply->writeInt32(setPreviewDisplay(surface));
-            return NO_ERROR;
-        } break;
         case SET_PREVIEW_TEXTURE: {
             ALOGV("SET_PREVIEW_TEXTURE");
             CHECK_INTERFACE(ICamera, data, reply);
-            sp<ISurfaceTexture> st = interface_cast<ISurfaceTexture>(data.readStrongBinder());
+            sp<IGraphicBufferProducer> st =
+                interface_cast<IGraphicBufferProducer>(data.readStrongBinder());
             reply->writeInt32(setPreviewTexture(st));
             return NO_ERROR;
         } break;
@@ -389,13 +359,6 @@ status_t BnCamera::onTransact(
             CHECK_INTERFACE(ICamera, data, reply);
             String8 params(data.readString8());
             reply->writeInt32(setParameters(params));
-            return NO_ERROR;
-         } break;
-		case SET_FD: {
-            CHECK_INTERFACE(ICamera, data, reply);
-            int fd = data.readFileDescriptor();
-			ALOGV("ICamera SET_FD fd = %d", fd);
-            reply->writeInt32(setFd(fd));
             return NO_ERROR;
          } break;
         case GET_PARAMETERS: {

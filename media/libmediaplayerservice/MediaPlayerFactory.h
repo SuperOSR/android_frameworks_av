@@ -54,8 +54,7 @@ class MediaPlayerFactory {
     static player_type getPlayerType(const sp<IMediaPlayer>& client,
                                      int fd,
                                      int64_t offset,
-                                     int64_t length,
-                                     bool check_cedar);
+                                     int64_t length);
     static player_type getPlayerType(const sp<IMediaPlayer>& client,
                                      const sp<IStreamSource> &source);
 

@@ -18,7 +18,7 @@
 
 #define MEDIA_CODEC_H_
 
-#include <gui/ISurfaceTexture.h>
+#include <gui/IGraphicBufferProducer.h>
 #include <media/hardware/CryptoAPI.h>
 #include <media/stagefright/foundation/AHandler.h>
 #include <utils/Vector.h>
@@ -31,7 +31,7 @@ struct AMessage;
 struct AString;
 struct ICrypto;
 struct SoftwareRenderer;
-struct SurfaceTextureClient;
+struct Surface;
 
 struct MediaCodec : public AHandler {
     enum ConfigureFlags {
@@ -52,9 +52,11 @@ struct MediaCodec : public AHandler {
 
     status_t configure(
             const sp<AMessage> &format,
-            const sp<SurfaceTextureClient> &nativeWindow,
+            const sp<Surface> &nativeWindow,
             const sp<ICrypto> &crypto,
             uint32_t flags);
+
+    status_t createInputSurface(sp<IGraphicBufferProducer>* bufferProducer);
 
     status_t start();
 
@@ -101,6 +103,8 @@ struct MediaCodec : public AHandler {
     status_t renderOutputBufferAndRelease(size_t index);
     status_t releaseOutputBuffer(size_t index);
 
+    status_t signalEndOfInputStream();
+
     status_t getOutputFormat(sp<AMessage> *format) const;
 
     status_t getInputBuffers(Vector<sp<ABuffer> > *buffers) const;
@@ -108,12 +112,14 @@ struct MediaCodec : public AHandler {
 
     status_t requestIDRFrame();
 
-    status_t setEncoderBitrate(int32_t bitrate);
-
     // Notification will be posted once there "is something to do", i.e.
     // an input/output buffer has become available, a format change is
     // pending, an error is pending.
     void requestActivityNotification(const sp<AMessage> &notify);
+
+    status_t getName(AString *componentName) const;
+
+    status_t setParameters(const sp<AMessage> &params);
 
 protected:
     virtual ~MediaCodec();
@@ -141,6 +147,7 @@ private:
     enum {
         kWhatInit                           = 'init',
         kWhatConfigure                      = 'conf',
+        kWhatCreateInputSurface             = 'cisf',
         kWhatStart                          = 'strt',
         kWhatStop                           = 'stop',
         kWhatRelease                        = 'rele',
@@ -148,6 +155,7 @@ private:
         kWhatQueueInputBuffer               = 'queI',
         kWhatDequeueOutputBuffer            = 'deqO',
         kWhatReleaseOutputBuffer            = 'relO',
+        kWhatSignalEndOfInputStream         = 'eois',
         kWhatGetBuffers                     = 'getB',
         kWhatFlush                          = 'flus',
         kWhatGetOutputFormat                = 'getO',
@@ -156,6 +164,8 @@ private:
         kWhatCodecNotify                    = 'codc',
         kWhatRequestIDRFrame                = 'ridr',
         kWhatRequestActivityNotification    = 'racN',
+        kWhatGetName                        = 'getN',
+        kWhatSetParameters                  = 'setP',
     };
 
     enum {
@@ -166,6 +176,9 @@ private:
         kFlagDequeueInputPending        = 16,
         kFlagDequeueOutputPending       = 32,
         kFlagIsSecure                   = 64,
+        kFlagSawMediaServerDie          = 128,
+        kFlagIsEncoder                  = 256,
+        kFlagGatherCodecSpecificData    = 512,
     };
 
     struct BufferInfo {
@@ -180,9 +193,10 @@ private:
     sp<ALooper> mLooper;
     sp<ALooper> mCodecLooper;
     sp<ACodec> mCodec;
+    AString mComponentName;
     uint32_t mReplyID;
     uint32_t mFlags;
-    sp<SurfaceTextureClient> mNativeWindow;
+    sp<Surface> mNativeWindow;
     SoftwareRenderer *mSoftRenderer;
     sp<AMessage> mOutputFormat;
 
@@ -200,6 +214,8 @@ private:
     List<sp<ABuffer> > mCSD;
 
     sp<AMessage> mActivityNotify;
+
+    bool mHaveInputSurface;
 
     MediaCodec(const sp<ALooper> &looper);
 
@@ -224,9 +240,13 @@ private:
     status_t queueCSDInputBuffer(size_t bufferIndex);
 
     status_t setNativeWindow(
-            const sp<SurfaceTextureClient> &surfaceTextureClient);
+            const sp<Surface> &surface);
 
     void postActivityNotificationIfPossible();
+
+    status_t onSetParameters(const sp<AMessage> &params);
+
+    status_t amendOutputFormatWithCodecSpecificData(const sp<ABuffer> &buffer);
 
     DISALLOW_EVIL_CONSTRUCTORS(MediaCodec);
 };

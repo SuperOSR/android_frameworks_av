@@ -27,7 +27,7 @@
 namespace android {
 
 class ICameraClient;
-class ISurfaceTexture;
+class IGraphicBufferProducer;
 class Surface;
 
 class ICamera: public IInterface
@@ -46,12 +46,9 @@ public:
     // allow other processes to use this ICamera interface
     virtual status_t        unlock() = 0;
 
-    // pass the buffered Surface to the camera service
-    virtual status_t        setPreviewDisplay(const sp<Surface>& surface) = 0;
-
-    // pass the buffered ISurfaceTexture to the camera service
+    // pass the buffered IGraphicBufferProducer to the camera service
     virtual status_t        setPreviewTexture(
-            const sp<ISurfaceTexture>& surfaceTexture) = 0;
+            const sp<IGraphicBufferProducer>& bufferProducer) = 0;
 
     // set the preview callback flag to affect how the received frames from
     // preview are handled.
@@ -95,9 +92,6 @@ public:
 
     // set preview/capture parameters - key/value pairs
     virtual status_t        setParameters(const String8& params) = 0;
-
-	// set file descriptor to camera HAL for writing file on android4.2 by fuqiang.
-	virtual status_t        setFd(int fd) = 0;
 
     // get preview/capture parameters - key/value pairs
     virtual String8         getParameters() const = 0;

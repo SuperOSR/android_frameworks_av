@@ -19,7 +19,6 @@
 #define HTTP_BASE_H_
 
 #include <media/stagefright/foundation/ABase.h>
-#include <media/stagefright/foundation/AString.h>
 #include <media/stagefright/DataSource.h>
 #include <media/stagefright/MediaErrors.h>
 #include <utils/threads.h>
@@ -29,8 +28,7 @@ namespace android {
 struct HTTPBase : public DataSource {
     enum Flags {
         // Don't log any URLs.
-        kFlagIncognito = 1,
-        kFlagUAIPAD  = 256,
+        kFlagIncognito = 1
     };
 
     HTTPBase();
@@ -50,6 +48,9 @@ struct HTTPBase : public DataSource {
 
     virtual status_t setBandwidthStatCollectFreq(int32_t freqMs);
 
+    static status_t UpdateProxyConfig(
+            const char *host, int32_t port, const char *exclusionList);
+
     void setUID(uid_t uid);
     bool getUID(uid_t *uid) const;
 
@@ -57,36 +58,6 @@ struct HTTPBase : public DataSource {
 
     static void RegisterSocketUserTag(int sockfd, uid_t uid, uint32_t kTag);
     static void UnRegisterSocketUserTag(int sockfd);
-
-    //* add by chenxiaochuan for QQ live stream.
-    virtual AString getRedirectUri(bool getAll = false)
-    {
-    	return AString("");
-    }
-
-    virtual bool isRedirected()
-    {
-    	return false;
-    }
-
-    virtual void setRedirectHost(const char* host)
-    {
-    	return;
-    }
-
-    virtual void setRedirectPort(const char* port)
-    {
-    	return;
-    }
-
-    virtual void setRedirectPath(const char* path)
-    {
-    	return;
-    }
-    virtual void setRedirectSpec(const char* path) = 0;
-    virtual void forceDisconnect(){};
-    virtual void setTimeoutLastUs(int64_t timeoutUs) {};
-    //* end.
 
 protected:
     void addBandwidthMeasurement(size_t numBytes, int64_t delayUs);

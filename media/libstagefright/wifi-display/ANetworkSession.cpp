@@ -15,8 +15,7 @@
  */
 
 //#define LOG_NDEBUG 0
-//#define LOG_TAG "NetworkSession"
-#define LOG_TAG "NS"
+#define LOG_TAG "NetworkSession"
 #include <utils/Log.h>
 
 #include "ANetworkSession.h"
@@ -24,10 +23,11 @@
 
 #include <arpa/inet.h>
 #include <fcntl.h>
+#include <linux/tcp.h>
 #include <net/if.h>
 #include <netdb.h>
 #include <netinet/in.h>
-#include <netinet/ip.h>
+#include <sys/ioctl.h>
 #include <sys/socket.h>
 
 #include <media/stagefright/foundation/ABuffer.h>
@@ -36,42 +36,10 @@
 #include <media/stagefright/foundation/hexdump.h>
 #include <media/stagefright/Utils.h>
 
-#include <cutils/properties.h>
-
 namespace android {
 
 static const size_t kMaxUDPSize = 1500;
-
-#define SW_DYNAMIC_ENCODE_BITRATE 1
-#define SW_DYNAMIC_ENDCOE_BITRATE_DEBUG 0
-#if SW_DYNAMIC_ENCODE_BITRATE
-/*  level     encoderBitrate    bps(video+audio)     UE
- * level 0:     5000000         5200000            favor
- * level 1:     3000000         4500000            very well(default)
- * level 2:     2000000         3300000            good
- * level 3:     1000000         1800000            soso
- * level 4:     500000          1000000            badly
- */
-static const size_t encoderBitrate[5] = {5000000, 3000000, 2000000, 1000000, 500000};
-static const size_t encoderBitrateSize = sizeof(encoderBitrate)/sizeof(encoderBitrate[0]);
-
-#if SW_DYNAMIC_ENDCOE_BITRATE_DEBUG
-static int32_t gBitrate = 0;
-static int32_t getBitrate(const char *propName) {
-    char val[PROPERTY_VALUE_MAX];
-    if (property_get(propName, val, NULL)) {
-        char *end;
-        unsigned long x = strtoul(val, &end, 10);
-
-        if (*end == '\0' && end > val && x > 0) {
-            return x;
-        }
-    }
-    return 0;
-}
-#endif
-
-#endif
+static const int32_t kMaxUDPRetries = 200;
 
 struct ANetworkSession::NetworkThread : public Thread {
     NetworkThread(ANetworkSession *session);
@@ -114,7 +82,8 @@ struct ANetworkSession::Session : public RefBase {
     status_t readMore();
     status_t writeMore();
 
-    status_t sendRequest(const void *data, ssize_t size);
+    status_t sendRequest(
+            const void *data, ssize_t size, bool timeValid, int64_t timeUs);
 
     void setIsRTSPConnection(bool yesno);
 
@@ -122,29 +91,33 @@ protected:
     virtual ~Session();
 
 private:
+    enum {
+        FRAGMENT_FLAG_TIME_VALID = 1,
+    };
+    struct Fragment {
+        uint32_t mFlags;
+        int64_t mTimeUs;
+        sp<ABuffer> mBuffer;
+    };
+
     int32_t mSessionID;
     State mState;
     bool mIsRTSPConnection;
     int mSocket;
     sp<AMessage> mNotify;
     bool mSawReceiveFailure, mSawSendFailure;
+    int32_t mUDPRetries;
 
-    // for TCP / stream data
-    AString mOutBuffer;
-
-    // for UDP / datagrams
-    List<sp<ABuffer> > mOutDatagrams;
+    List<Fragment> mOutFragments;
 
     AString mInBuffer;
 
-    // Encoder Bitrate Control
-    int32_t mBitrateLevel;//record the current encoder bitrate level
-    int64_t mAgainTimeUs;//record the time when we meet -EAGAIN
-    int64_t mRecoveryTimeUs;//record the time begin to increase bitrate
+    int64_t mLastStallReportUs;
 
     void notifyError(bool send, status_t err, const char *detail);
     void notify(NotificationReason reason);
-    void notifyBitrateChange(int32_t bitrate);
+
+    void dumpFragmentStats(const Fragment &frag);
 
     DISALLOW_EVIL_CONSTRUCTORS(Session);
 };
@@ -176,10 +149,9 @@ ANetworkSession::Session::Session(
       mSocket(s),
       mNotify(notify),
       mSawReceiveFailure(false),
-      mSawSendFailure(false) {
-    mAgainTimeUs = -1ll;
-    mBitrateLevel = 1;
-    mRecoveryTimeUs = -1ll;
+      mSawSendFailure(false),
+      mUDPRetries(kMaxUDPRetries),
+      mLastStallReportUs(-1ll) {
     if (mState == CONNECTED) {
         struct sockaddr_in localAddr;
         socklen_t localAddrLen = sizeof(localAddr);
@@ -260,8 +232,8 @@ bool ANetworkSession::Session::wantsToRead() {
 bool ANetworkSession::Session::wantsToWrite() {
     return !mSawSendFailure
         && (mState == CONNECTING
-            || (mState == CONNECTED && !mOutBuffer.empty())
-            || (mState == DATAGRAM && !mOutDatagrams.empty()));
+            || (mState == CONNECTED && !mOutFragments.empty())
+            || (mState == DATAGRAM && !mOutFragments.empty()));
 }
 
 status_t ANetworkSession::Session::readMore() {
@@ -317,8 +289,17 @@ status_t ANetworkSession::Session::readMore() {
         }
 
         if (err != OK) {
-            notifyError(false /* send */, err, "Recvfrom failed.");
-            mSawReceiveFailure = true;
+            if (!mUDPRetries) {
+                notifyError(false /* send */, err, "Recvfrom failed.");
+                mSawReceiveFailure = true;
+            } else {
+                mUDPRetries--;
+                ALOGE("Recvfrom failed, %d/%d retries left",
+                        mUDPRetries, kMaxUDPRetries);
+                err = OK;
+            }
+        } else {
+            mUDPRetries = kMaxUDPRetries;
         }
 
         return err;
@@ -357,6 +338,9 @@ status_t ANetworkSession::Session::readMore() {
 
             sp<ABuffer> packet = new ABuffer(packetSize);
             memcpy(packet->data(), mInBuffer.c_str() + 2, packetSize);
+
+            int64_t nowUs = ALooper::GetNowUs();
+            packet->meta()->setInt64("arrivalTimeUs", nowUs);
 
             sp<AMessage> notify = mNotify->dup();
             notify->setInt32("sessionID", mSessionID);
@@ -443,31 +427,41 @@ status_t ANetworkSession::Session::readMore() {
     return err;
 }
 
+void ANetworkSession::Session::dumpFragmentStats(const Fragment &frag) {
+#if 0
+    int64_t nowUs = ALooper::GetNowUs();
+    int64_t delayMs = (nowUs - frag.mTimeUs) / 1000ll;
+
+    static const int64_t kMinDelayMs = 0;
+    static const int64_t kMaxDelayMs = 300;
+
+    const char *kPattern = "########################################";
+    size_t kPatternSize = strlen(kPattern);
+
+    int n = (kPatternSize * (delayMs - kMinDelayMs))
+                / (kMaxDelayMs - kMinDelayMs);
+
+    if (n < 0) {
+        n = 0;
+    } else if ((size_t)n > kPatternSize) {
+        n = kPatternSize;
+    }
+
+    ALOGI("[%lld]: (%4lld ms) %s\n",
+          frag.mTimeUs / 1000,
+          delayMs,
+          kPattern + kPatternSize - n);
+#endif
+}
+
 status_t ANetworkSession::Session::writeMore() {
     if (mState == DATAGRAM) {
-        CHECK(!mOutDatagrams.empty());
+        CHECK(!mOutFragments.empty());
 
         status_t err;
         do {
-            const sp<ABuffer> &datagram = *mOutDatagrams.begin();
-
-            uint8_t *data = datagram->data();
-            if (data[0] == 0x80 && (data[1] & 0x7f) == 33) {
-                int64_t nowUs = ALooper::GetNowUs();
-
-                uint32_t prevRtpTime = U32_AT(&data[4]);
-
-                // 90kHz time scale
-                uint32_t rtpTime = (nowUs * 9ll) / 100ll;
-                int32_t diffTime = (int32_t)rtpTime - (int32_t)prevRtpTime;
-
-                ALOGV("correcting rtpTime by %.0f ms", diffTime / 90.0);
-
-                data[4] = rtpTime >> 24;
-                data[5] = (rtpTime >> 16) & 0xff;
-                data[6] = (rtpTime >> 8) & 0xff;
-                data[7] = rtpTime & 0xff;
-            }
+            const Fragment &frag = *mOutFragments.begin();
+            const sp<ABuffer> &datagram = frag.mBuffer;
 
             int n;
             do {
@@ -477,127 +471,37 @@ status_t ANetworkSession::Session::writeMore() {
             err = OK;
 
             if (n > 0) {
-                mOutDatagrams.erase(mOutDatagrams.begin());
-                #if SW_DYNAMIC_ENCODE_BITRATE
-                #if SW_DYNAMIC_ENDCOE_BITRATE_DEBUG
-                int32_t br = getBitrate("media.wfd.video-bitrate");
-                if (gBitrate != br && br != 0) {
-                    gBitrate = br;
-                    if(br == 500000)
-                        mBitrateLevel = 4;
-                    else if(br == 1000000)
-                        mBitrateLevel = 3;
-                    else if(br == 2000000)
-                        mBitrateLevel = 2;
-                    else if(br == 3000000)
-                        mBitrateLevel = 1;
-                    else if(br == 5000000)
-                        mBitrateLevel = 0;
-                    else
-                        ALOGI("br = %d, mBitrateLevel = %d", br, mBitrateLevel);
-                    notifyBitrateChange(mBitrateLevel);
+                if (frag.mFlags & FRAGMENT_FLAG_TIME_VALID) {
+                    dumpFragmentStats(frag);
                 }
-                #endif
-                // try to decrease mBitrateLevel, increase bitrate gradually in 8 seconds or 18 seconds.
-                // we meet -EAGAIN before,but now it becomes normal, we still need to wait 8 seconds.
-                if(mAgainTimeUs > 0ll && ((ALooper::GetNowUs() - mAgainTimeUs)/1E6 > 8)) {
-                    mAgainTimeUs = -1ll;//reset the mAgainTimeus
-                    mRecoveryTimeUs = ALooper::GetNowUs();//get the next delay time.
-                    ALOGV("we meet -EAGAIN before,but it becomes normal after 8 seconds.");
-                    switch(mBitrateLevel) {
-                        case 1:
-                        case 2:
-                        {   // 1 --> 1
-                            if(mBitrateLevel == 1) break;
-                            // 2 --> 1
-                            ALOGI("+[%d]--->[%d]",
-                                    encoderBitrate[mBitrateLevel], encoderBitrate[1]);
-                            mBitrateLevel = 1;
-                            notifyBitrateChange(mBitrateLevel);
-                            break;
-                        }
-                        case 3:
-                        case 4:
-                        {   //3-->2,4-->3
-                            int32_t bak = mBitrateLevel;
-                            if(mBitrateLevel == 3)
-                                mBitrateLevel = 2;
-                            else
-                                mBitrateLevel = 3;
-                            ALOGI("+[%d]--->[%d]",
-                                    encoderBitrate[bak], encoderBitrate[mBitrateLevel]);
-                            notifyBitrateChange(mBitrateLevel);
-                            break;
-                        }
-                        default:
-                            ALOGE("logical error(mBitrateLevel=%d)!!!", mBitrateLevel);
-                            break;
-                    }
-                } else if (mAgainTimeUs < 0ll && mBitrateLevel > 1
-                            && mRecoveryTimeUs > 0ll
-                            && ((ALooper::GetNowUs() - mRecoveryTimeUs)/1E6 > 10) ) {
-                    mRecoveryTimeUs = -1ll;
-                    ALOGV("we may meet -EAGAIN before,after 10 seconds,wifi becomes good finally.");
-                    ALOGI("+[%d]---->[%d]",
-                            encoderBitrate[mBitrateLevel], encoderBitrate[1]);
-                    mBitrateLevel = 1;
-                    notifyBitrateChange(mBitrateLevel);
-                }
-                #endif
+
+                mOutFragments.erase(mOutFragments.begin());
             } else if (n < 0) {
                 err = -errno;
             } else if (n == 0) {
                 err = -ECONNRESET;
             }
-        } while (err == OK && !mOutDatagrams.empty());
+        } while (err == OK && !mOutFragments.empty());
 
         if (err == -EAGAIN) {
-            if (!mOutDatagrams.empty()) {
-                //ALOGI("%d datagrams remain queued.", mOutDatagrams.size());
-                ALOGI("%d.", mOutDatagrams.size());
-                #if SW_DYNAMIC_ENCODE_BITRATE
-                // try to increase mBitrateLevel, decrease bitrate rapidly in 2000 ms.
-                if(mAgainTimeUs < 0ll) {
-                    //we meet badly wireless enviroment first time.
-                    mAgainTimeUs = ALooper::GetNowUs();
-                    ALOGV("--->Initial Bitrate[%d]<---", encoderBitrate[mBitrateLevel]);
-                } else {
-                    if( ((ALooper::GetNowUs() - mAgainTimeUs)/1E3) > 1000 ) {
-                        // after 1000 ms if we still get -EAGAIN error,
-                        // we must decrease Bitrate.
-
-                        //update for next time.
-                        mAgainTimeUs = ALooper::GetNowUs();
-
-                        int32_t encoderBitrateBak = mBitrateLevel;
-                        if(++mBitrateLevel < 3) {
-                            //change encoder bitrate: good, soso.
-                            ALOGI("-[%d]--->[%d]",
-                                    encoderBitrate[mBitrateLevel-1], encoderBitrate[mBitrateLevel]);
-                            notifyBitrateChange(mBitrateLevel);
-                        } else {
-                            mBitrateLevel = 3;
-                            if(encoderBitrateBak == 3) {
-                                ALOGI("Badly [%d].", encoderBitrate[mBitrateLevel]);
-                            } else {
-                                ALOGI("-[%d]--->[%d]",
-                                    encoderBitrate[mBitrateLevel-1], encoderBitrate[mBitrateLevel]);
-                                //change encoder bitrate: badly.
-                                notifyBitrateChange(mBitrateLevel);
-                            }
-                        }
-                    } else {
-                        ALOGV("Time Not Reach.");
-                    }
-                }
-                #endif
+            if (!mOutFragments.empty()) {
+                ALOGI("%d datagrams remain queued.", mOutFragments.size());
             }
             err = OK;
         }
 
         if (err != OK) {
-            notifyError(true /* send */, err, "Send datagram failed.");
-            mSawSendFailure = true;
+            if (!mUDPRetries) {
+                notifyError(true /* send */, err, "Send datagram failed.");
+                mSawSendFailure = true;
+            } else {
+                mUDPRetries--;
+                ALOGE("Send datagram failed, %d/%d retries left",
+                        mUDPRetries, kMaxUDPRetries);
+                err = OK;
+            }
+        } else {
+            mUDPRetries = kMaxUDPRetries;
         }
 
         return err;
@@ -623,23 +527,37 @@ status_t ANetworkSession::Session::writeMore() {
     }
 
     CHECK_EQ(mState, CONNECTED);
-    CHECK(!mOutBuffer.empty());
+    CHECK(!mOutFragments.empty());
 
     ssize_t n;
-    do {
-        n = send(mSocket, mOutBuffer.c_str(), mOutBuffer.size(), 0);
-    } while (n < 0 && errno == EINTR);
+    while (!mOutFragments.empty()) {
+        const Fragment &frag = *mOutFragments.begin();
+
+        do {
+            n = send(mSocket, frag.mBuffer->data(), frag.mBuffer->size(), 0);
+        } while (n < 0 && errno == EINTR);
+
+        if (n <= 0) {
+            break;
+        }
+
+        frag.mBuffer->setRange(
+                frag.mBuffer->offset() + n, frag.mBuffer->size() - n);
+
+        if (frag.mBuffer->size() > 0) {
+            break;
+        }
+
+        if (frag.mFlags & FRAGMENT_FLAG_TIME_VALID) {
+            dumpFragmentStats(frag);
+        }
+
+        mOutFragments.erase(mOutFragments.begin());
+    }
 
     status_t err = OK;
 
-    if (n > 0) {
-#if 0
-        ALOGI("out:");
-        hexdump(mOutBuffer.c_str(), n);
-#endif
-
-        mOutBuffer.erase(0, n);
-    } else if (n < 0) {
+    if (n < 0) {
         err = -errno;
     } else if (n == 0) {
         err = -ECONNRESET;
@@ -650,35 +568,69 @@ status_t ANetworkSession::Session::writeMore() {
         mSawSendFailure = true;
     }
 
+#if 0
+    int numBytesQueued;
+    int res = ioctl(mSocket, SIOCOUTQ, &numBytesQueued);
+    if (res == 0 && numBytesQueued > 50 * 1024) {
+        if (numBytesQueued > 409600) {
+            ALOGW("!!! numBytesQueued = %d", numBytesQueued);
+        }
+
+        int64_t nowUs = ALooper::GetNowUs();
+
+        if (mLastStallReportUs < 0ll
+                || nowUs > mLastStallReportUs + 100000ll) {
+            sp<AMessage> msg = mNotify->dup();
+            msg->setInt32("sessionID", mSessionID);
+            msg->setInt32("reason", kWhatNetworkStall);
+            msg->setSize("numBytesQueued", numBytesQueued);
+            msg->post();
+
+            mLastStallReportUs = nowUs;
+        }
+    }
+#endif
+
     return err;
 }
 
-status_t ANetworkSession::Session::sendRequest(const void *data, ssize_t size) {
+status_t ANetworkSession::Session::sendRequest(
+        const void *data, ssize_t size, bool timeValid, int64_t timeUs) {
     CHECK(mState == CONNECTED || mState == DATAGRAM);
 
-    if (mState == DATAGRAM) {
-        CHECK_GE(size, 0);
+    if (size < 0) {
+        size = strlen((const char *)data);
+    }
 
-        sp<ABuffer> datagram = new ABuffer(size);
-        memcpy(datagram->data(), data, size);
-
-        mOutDatagrams.push_back(datagram);
+    if (size == 0) {
         return OK;
     }
+
+    sp<ABuffer> buffer;
 
     if (mState == CONNECTED && !mIsRTSPConnection) {
         CHECK_LE(size, 65535);
 
-        uint8_t prefix[2];
-        prefix[0] = size >> 8;
-        prefix[1] = size & 0xff;
-
-        mOutBuffer.append((const char *)prefix, sizeof(prefix));
+        buffer = new ABuffer(size + 2);
+        buffer->data()[0] = size >> 8;
+        buffer->data()[1] = size & 0xff;
+        memcpy(buffer->data() + 2, data, size);
+    } else {
+        buffer = new ABuffer(size);
+        memcpy(buffer->data(), data, size);
     }
 
-    mOutBuffer.append(
-            (const char *)data,
-            (size >= 0) ? size : strlen((const char *)data));
+    Fragment frag;
+
+    frag.mFlags = 0;
+    if (timeValid) {
+        frag.mFlags = FRAGMENT_FLAG_TIME_VALID;
+        frag.mTimeUs = timeUs;
+    }
+
+    frag.mBuffer = buffer;
+
+    mOutFragments.push_back(frag);
 
     return OK;
 }
@@ -698,16 +650,6 @@ void ANetworkSession::Session::notify(NotificationReason reason) {
     sp<AMessage> msg = mNotify->dup();
     msg->setInt32("sessionID", mSessionID);
     msg->setInt32("reason", reason);
-    msg->post();
-}
-
-void ANetworkSession::Session::notifyBitrateChange(int32_t bitrate) {
-    sp<AMessage> msg = mNotify->dup();
-    msg->setInt32("sessionID", mSessionID);
-    msg->setInt32("reason", kWhatBitrateChange);
-    #if SW_DYNAMIC_ENCODE_BITRATE
-    msg->setInt32("encoderBitrate", encoderBitrate[bitrate]);
-    #endif
     msg->post();
 }
 
@@ -912,11 +854,7 @@ status_t ANetworkSession::createClientOrServer(
     }
 
     if (mode == kModeCreateUDPSession) {
-        #if 0
         int size = 256 * 1024;
-        #else
-        int size = 1024 * 1024;//1Mbytes buffer
-        #endif
 
         res = setsockopt(s, SOL_SOCKET, SO_RCVBUF, &size, sizeof(size));
 
@@ -931,24 +869,21 @@ status_t ANetworkSession::createClientOrServer(
             err = -errno;
             goto bail2;
         }
+    } else if (mode == kModeCreateTCPDatagramSessionActive) {
+        int flag = 1;
+        res = setsockopt(s, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
 
-        /*
-        802.1p Class of Service             TOS Range 	            DSCP Range          WME Category
-                0 - Best Effort             0x00-0x1f 	            0-7 	            Best Effort
-                1 - Background              0x20-0x3f 	            8-15 	            Background
-                2 - Spare                   0x40-0x5f 	            16-23 	            Background
-                3 - Excellent Effort        0x60-0x7f 	            24-25, 28-31 	    Best Effort
-                4 - Controlled Load         0x80-0x9f 	            32-39 	            Video
-                5 - Video (<100ms latency)  0xa0-0xbf 	            40-45 	            Video
-                6 - Voice (<10ms latency)   0x68,0xb8,0xc0-0xdf     26-27,46-47,48-55   Voice
-                7 - Network Control         0xe0-0xff 	            56-63 	            Voice
-        */
-        uint8_t serviceType =  0xa0;//udp,video
-        res = setsockopt(s, SOL_IP, IP_TOS, (void *)&serviceType, sizeof(serviceType));
-        if(res < 0) {
-            ALOGD("setsockopt(IP_TOS) failed!");
-        } else {
-            ALOGD("udp set it.");
+        if (res < 0) {
+            err = -errno;
+            goto bail2;
+        }
+
+        int tos = 224;  // VOICE
+        res = setsockopt(s, IPPROTO_IP, IP_TOS, &tos, sizeof(tos));
+
+        if (res < 0) {
+            err = -errno;
+            goto bail2;
         }
     }
 
@@ -1126,7 +1061,8 @@ status_t ANetworkSession::connectUDPSession(
 }
 
 status_t ANetworkSession::sendRequest(
-        int32_t sessionID, const void *data, ssize_t size) {
+        int32_t sessionID, const void *data, ssize_t size,
+        bool timeValid, int64_t timeUs) {
     Mutex::Autolock autoLock(mLock);
 
     ssize_t index = mSessions.indexOfKey(sessionID);
@@ -1137,7 +1073,7 @@ status_t ANetworkSession::sendRequest(
 
     const sp<Session> session = mSessions.valueAt(index);
 
-    status_t err = session->sendRequest(data, size);
+    status_t err = session->sendRequest(data, size, timeValid, timeUs);
 
     interrupt();
 
@@ -1269,29 +1205,8 @@ void ANetworkSession::threadLoop() {
                                   addr & 0xff,
                                   ntohs(remoteAddr.sin_port),
                                   clientSocket);
-                            /*
-                            802.1p Class of Service             TOS Range 	            DSCP Range          WME Category
-                                    0 - Best Effort             0x00-0x1f 	            0-7 	            Best Effort
-                                    1 - Background              0x20-0x3f 	            8-15 	            Background
-                                    2 - Spare                   0x40-0x5f 	            16-23 	            Background
-                                    3 - Excellent Effort        0x60-0x7f 	            24-25, 28-31 	    Best Effort
-                                    4 - Controlled Load         0x80-0x9f 	            32-39 	            Video
-                                    5 - Video (<100ms latency)  0xa0-0xbf 	            40-45 	            Video
-                                    6 - Voice (<10ms latency)   0x68,0xb8,0xc0-0xdf     26-27,46-47,48-55   Voice
-                                    7 - Network Control         0xe0-0xff 	            56-63 	            Voice
-                            */
-                            #ifndef BOARD_BRCM_WLAN
-                            uint8_t serviceType =  0xb8;//tcp,voice
-                            res = setsockopt(clientSocket, SOL_IP, IP_TOS, (void *)&serviceType, sizeof(serviceType));
-                            if(res < 0) {
-                                ALOGD("setsockopt(IP_TOS) failed!");
-                            } else {
-                                ALOGD("tcp set it.");
-                            }
-                            #endif
 
                             sp<Session> clientSession =
-                                // using socket sd as sessionID
                                 new Session(
                                         mNextSessionID++,
                                         Session::CONNECTED,
