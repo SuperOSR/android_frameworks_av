@@ -68,9 +68,12 @@ static void addBatteryData(uint32_t params) {
 StagefrightRecorder::StagefrightRecorder()
     : mWriter(NULL),
       mOutputFd(-1),
+      mOutputPath(NULL),
       mAudioSource(AUDIO_SOURCE_CNT),
       mVideoSource(VIDEO_SOURCE_LIST_END),
       mStarted(false), mSurfaceMediaSource(NULL),
+      mpCedarXRecorder(NULL),
+      mbHWEncoder(false),
       mCaptureTimeLapse(false) {
 
     ALOGV("Constructor");
@@ -80,10 +83,36 @@ StagefrightRecorder::StagefrightRecorder()
 StagefrightRecorder::~StagefrightRecorder() {
     ALOGV("Destructor");
     stop();
+    if(mOutputPath != NULL) {
+    	free(mOutputPath);
+    	mOutputPath = NULL;
+    }
+
+	if (mpCedarXRecorder != NULL)
+	{	
+		delete mpCedarXRecorder;
+		mpCedarXRecorder = NULL;
+	}
+	mbHWEncoder = false;
 }
 
 status_t StagefrightRecorder::init() {
     ALOGV("init");
+
+    if (mpCedarXRecorder != NULL)
+	{
+		ALOGW("mpCedarXRecorder should be NULL at first\n");
+		delete mpCedarXRecorder;
+		mpCedarXRecorder = NULL;
+	}
+	
+	mpCedarXRecorder = new CedarXRecorder();
+	if (mpCedarXRecorder == NULL)
+	{
+		ALOGE("create CedarXRecorder failed\n");
+		return UNKNOWN_ERROR;
+	}
+    
     return OK;
 }
 
@@ -93,6 +122,28 @@ status_t StagefrightRecorder::init() {
 sp<IGraphicBufferProducer> StagefrightRecorder::querySurfaceMediaSource() const {
     ALOGV("Get SurfaceMediaSource");
     return mSurfaceMediaSource->getBufferQueue();
+}
+
+status_t StagefrightRecorder::queueBuffer(int index, int addr_y, int addr_c, int64_t timestamp)
+{
+    ALOGV("queueBuffer");
+    if (mbHWEncoder)
+	{
+		return mpCedarXRecorder->queueBuffer(index, addr_y, addr_c, timestamp);
+	}
+
+    return UNKNOWN_ERROR;
+}
+
+sp<IMemory> StagefrightRecorder::getOneBsFrame(int mode)
+{
+    ALOGV("getOneBsFrame");
+    if (mbHWEncoder)
+	{
+		return mpCedarXRecorder->getOneBsFrame(mode);
+	}
+
+    return NULL;
 }
 
 status_t StagefrightRecorder::setAudioSource(audio_source_t as) {
@@ -172,7 +223,7 @@ status_t StagefrightRecorder::setVideoEncoder(video_encoder ve) {
     }
 
     if (ve == VIDEO_ENCODER_DEFAULT) {
-        mVideoEncoder = VIDEO_ENCODER_H263;
+        mVideoEncoder = VIDEO_ENCODER_H264;
     } else {
         mVideoEncoder = ve;
     }
@@ -233,11 +284,13 @@ status_t StagefrightRecorder::setPreviewSurface(const sp<IGraphicBufferProducer>
 }
 
 status_t StagefrightRecorder::setOutputFile(const char *path) {
-    ALOGE("setOutputFile(const char*) must not be called");
+    ALOGI("setOutputFile(const char*) must not be called");
     // We don't actually support this at all, as the media_server process
     // no longer has permissions to create files.
 
-    return -EPERM;
+    mOutputPath = strdup(path);
+    
+    return OK;
 }
 
 status_t StagefrightRecorder::setOutputFile(int fd, int64_t offset, int64_t length) {
@@ -738,11 +791,104 @@ status_t StagefrightRecorder::setClientName(const String16& clientName) {
 }
 
 status_t StagefrightRecorder::prepare() {
-    return OK;
+    status_t error = OK;	
+
+	// do not care audio encoder format
+	if(mVideoEncoder == VIDEO_ENCODER_H264
+		&& mpCedarXRecorder != NULL)
+	{
+		mbHWEncoder = true;
+	}
+
+	if (mbHWEncoder)
+	{
+		if (mVideoSource <= VIDEO_SOURCE_CAMERA) {
+			mpCedarXRecorder->setPreviewSurface(mPreviewSurface);
+
+			error = mpCedarXRecorder->setCamera(mCamera, mCameraProxy);
+			if (error != OK)
+			{
+				goto ERROR;
+			}
+		}
+		else if (mVideoSource == VIDEO_SOURCE_PUSH_BUFFER) {
+			ALOGD("VIDEO_SOURCE_PUSH_BUFFER");
+		} else if (mVideoSource == VIDEO_SOURCE_GRALLOC_BUFFER) {
+		    sp<MediaSource> mediaSource;
+		    status_t err = setupMediaSource(&mediaSource);
+			if (err != OK) {
+				return err;
+			}
+
+			error = mpCedarXRecorder->setMediaSource(mediaSource, CDX_RECORDER_MEDIATYPE_VIDEO);
+			if (error != OK)
+			{
+				goto ERROR;
+			}
+		} else {
+		    return INVALID_OPERATION;
+		}
+		
+		mpCedarXRecorder->setListener(mListener);
+
+		// audio
+		if (mAudioSource < AUDIO_SOURCE_CNT)
+		{
+			mpCedarXRecorder->setAudioSource(mAudioSource);
+			mpCedarXRecorder->setAudioEncoder(mAudioEncoder);
+			mpCedarXRecorder->setParamAudioEncodingBitRate(mAudioBitRate);
+			mpCedarXRecorder->setParamAudioNumberOfChannels(mAudioChannels);
+			mpCedarXRecorder->setParamAudioSamplingRate(mSampleRate);
+		}
+
+		// video
+		if (mVideoSource < VIDEO_SOURCE_LIST_END)
+		{
+			mpCedarXRecorder->setVideoSource(mVideoSource);
+			mpCedarXRecorder->setVideoEncoder(mVideoEncoder);
+			mpCedarXRecorder->setVideoSize(mVideoWidth, mVideoHeight);
+			mpCedarXRecorder->setParamVideoEncodingBitRate(mVideoBitRate);
+			mpCedarXRecorder->setVideoFrameRate(mFrameRate);
+			mpCedarXRecorder->setParamVideoRotation(mRotationDegrees);
+		}
+
+		// output
+		mpCedarXRecorder->setParamMaxFileDurationUs(mMaxFileDurationUs);
+		mpCedarXRecorder->setParamMaxFileSizeBytes(mMaxFileSizeBytes);
+		if(mOutputFd >= 0)
+			mpCedarXRecorder->setOutputFile(mOutputFd);
+		else
+			mpCedarXRecorder->setOutputPath(mOutputPath);
+
+		mpCedarXRecorder->setOutputFormat(mOutputFormat);
+
+		// location
+		mpCedarXRecorder->setParamGeoDataLatitude(mLatitudex10000);
+		mpCedarXRecorder->setParamGeoDataLongitude(mLongitudex10000);
+		
+		// lapse
+		mpCedarXRecorder->setParamTimeLapseEnable(mCaptureTimeLapse);
+		mpCedarXRecorder->setParamTimeBetweenTimeLapseFrameCapture(mTimeBetweenTimeLapseFrameCaptureUs);
+
+		error = mpCedarXRecorder->prepare();
+		if (error != OK)
+		{
+			goto ERROR;
+		}
+	}
+
+ERROR:
+    return error;
 }
 
 status_t StagefrightRecorder::start() {
-    CHECK_GE(mOutputFd, 0);
+    status_t status = OK;
+
+	if (mbHWEncoder)
+	{
+		status = mpCedarXRecorder->start();
+		goto HWENC_BATTERY;
+	}
 
     // Get UID here for permission checking
     mClientUid = IPCThreadState::self()->getCallingUid();
@@ -750,8 +896,6 @@ status_t StagefrightRecorder::start() {
         ALOGE("File writer is not avaialble");
         return UNKNOWN_ERROR;
     }
-
-    status_t status = OK;
 
     switch (mOutputFormat) {
         case OUTPUT_FORMAT_DEFAULT:
@@ -783,6 +927,8 @@ status_t StagefrightRecorder::start() {
             status = UNKNOWN_ERROR;
             break;
     }
+
+HWENC_BATTERY:
 
     if ((status == OK) && (!mStarted)) {
         mStarted = true;
@@ -1580,10 +1726,19 @@ status_t StagefrightRecorder::startMPEG4Recording() {
 
 status_t StagefrightRecorder::pause() {
     ALOGV("pause");
+
+    if (mbHWEncoder)
+	{
+		mpCedarXRecorder->pause();
+		goto HWENC_BATTERY;
+	}
+    
     if (mWriter == NULL) {
         return UNKNOWN_ERROR;
     }
     mWriter->pause();
+
+HWENC_BATTERY:
 
     if (mStarted) {
         mStarted = false;
@@ -1612,10 +1767,18 @@ status_t StagefrightRecorder::stop() {
         mCameraSourceTimeLapse = NULL;
     }
 
+    if (mbHWEncoder)
+	{
+		err = mpCedarXRecorder->stop();
+		goto HWENC_BATTERY;
+	}
+
     if (mWriter != NULL) {
         err = mWriter->stop();
         mWriter.clear();
     }
+
+HWENC_BATTERY:
 
     if (mOutputFd >= 0) {
         ::close(mOutputFd);
@@ -1700,6 +1863,11 @@ status_t StagefrightRecorder::getMaxAmplitude(int *max) {
     if (max == NULL) {
         ALOGE("Null pointer argument");
         return BAD_VALUE;
+    }
+
+    if (mbHWEncoder)
+	{
+		return mpCedarXRecorder->getMaxAmplitude(max);
     }
 
     if (mAudioSourceNode != 0) {

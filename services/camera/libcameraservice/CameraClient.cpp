@@ -89,7 +89,9 @@ status_t CameraClient::initialize(camera_module_t *module) {
 
     // Enable zoom, error, focus, and metadata messages by default
     enableMsgType(CAMERA_MSG_ERROR | CAMERA_MSG_ZOOM | CAMERA_MSG_FOCUS |
-                  CAMERA_MSG_PREVIEW_METADATA | CAMERA_MSG_FOCUS_MOVE);
+                  CAMERA_MSG_PREVIEW_METADATA | CAMERA_MSG_FOCUS_MOVE |
+                  CAMERA_MSG_CONTINUOUSSNAP | CAMERA_MSG_SNAP | CAMERA_MSG_SNAP_THUMB |
+                  CAMERA_MSG_SNAP_FD); //enable the continuoussnap and singlesnap message by fuqiang
 
     LOG1("CameraClient::initialize X (pid %d, id %d)", callingPid, mCameraId);
     return OK;
@@ -424,7 +426,9 @@ status_t CameraClient::startRecordingMode() {
 
     // start recording mode
     enableMsgType(CAMERA_MSG_VIDEO_FRAME);
-    mCameraService->playSound(CameraService::SOUND_RECORDING);
+	if (mPlayShutterSound) {
+    	mCameraService->playSound(CameraService::SOUND_RECORDING);
+	}
     result = mHardware->startRecording();
     if (result != NO_ERROR) {
         ALOGE("mHardware->startRecording() failed with status %d", result);
@@ -453,7 +457,9 @@ void CameraClient::stopRecording() {
 
     disableMsgType(CAMERA_MSG_VIDEO_FRAME);
     mHardware->stopRecording();
-    mCameraService->playSound(CameraService::SOUND_RECORDING);
+	if (mPlayShutterSound) {
+    	mCameraService->playSound(CameraService::SOUND_RECORDING);
+	}
 
     mPreviewBuffer.clear();
 }
@@ -552,6 +558,15 @@ status_t CameraClient::setParameters(const String8& params) {
     return mHardware->setParameters(p);
 }
 
+status_t CameraClient::setFd(int fd) {
+    ALOGV("CameraClient setFd = %d", fd);
+    Mutex::Autolock lock(mLock);
+    status_t result = checkPidAndHardware();
+    if (result != NO_ERROR) return result;
+
+    return mHardware->setFd(dup(fd));
+}
+
 // get preview/capture parameters - key/value pairs
 String8 CameraClient::getParameters() const {
     Mutex::Autolock lock(mLock);
@@ -622,7 +637,9 @@ status_t CameraClient::sendCommand(int32_t cmd, int32_t arg1, int32_t arg2) {
         }
         return OK;
     } else if (cmd == CAMERA_CMD_PLAY_RECORDING_SOUND) {
-        mCameraService->playSound(CameraService::SOUND_RECORDING);
+    	if (mPlayShutterSound) {
+        	mCameraService->playSound(CameraService::SOUND_RECORDING);
+    	}
     } else if (cmd == CAMERA_CMD_SET_VIDEO_BUFFER_COUNT) {
         // Silently ignore this command
         return INVALID_OPERATION;

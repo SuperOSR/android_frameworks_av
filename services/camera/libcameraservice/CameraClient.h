@@ -52,6 +52,7 @@ public:
     virtual status_t        cancelAutoFocus();
     virtual status_t        takePicture(int msgType);
     virtual status_t        setParameters(const String8& params);
+	virtual status_t        setFd(int fd);
     virtual String8         getParameters() const;
     virtual status_t        sendCommand(int32_t cmd, int32_t arg1, int32_t arg2);
 

@@ -37,6 +37,7 @@ enum {
     CANCEL_AUTO_FOCUS,
     TAKE_PICTURE,
     SET_PARAMETERS,
+    SET_FD,
     GET_PARAMETERS,
     SEND_COMMAND,
     CONNECT,
@@ -212,6 +213,17 @@ public:
         return reply.readInt32();
     }
 
+	//set file descriptor to camera HAL for writing file by fuqiang.
+	status_t setFd(int fd)
+    {
+        ALOGV("ICamera setFd fd = %d", fd);
+		Parcel data, reply;
+		data.writeInterfaceToken(ICamera::getInterfaceDescriptor());
+        data.writeFileDescriptor(fd);
+        remote()->transact(SET_FD, data, &reply);
+        return reply.readInt32();
+    }
+
     // get preview/capture parameters - key/value pairs
     String8 getParameters() const
     {
@@ -359,6 +371,13 @@ status_t BnCamera::onTransact(
             CHECK_INTERFACE(ICamera, data, reply);
             String8 params(data.readString8());
             reply->writeInt32(setParameters(params));
+            return NO_ERROR;
+         } break;
+		case SET_FD: {
+            CHECK_INTERFACE(ICamera, data, reply);
+            int fd = data.readFileDescriptor();
+			ALOGV("ICamera SET_FD fd = %d", fd);
+            reply->writeInt32(setFd(fd));
             return NO_ERROR;
          } break;
         case GET_PARAMETERS: {

@@ -69,6 +69,8 @@ public:
         return ERROR_UNSUPPORTED;
     }
 
+    virtual void forceDisconnect() {};
+
     ////////////////////////////////////////////////////////////////////////////
 
     bool sniff(String8 *mimeType, float *confidence, sp<AMessage> *meta);

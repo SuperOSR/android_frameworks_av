@@ -107,6 +107,8 @@ struct SfDelegate : public net::URLRequest::Delegate {
 
     void setUID(uid_t uid);
 
+    void setUA(int ua);
+
     virtual void OnReceivedRedirect(
             net::URLRequest *request, const GURL &new_url, bool *defer_redirect);
 

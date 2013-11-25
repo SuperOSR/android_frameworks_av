@@ -381,6 +381,18 @@ public:
         return INVALID_OPERATION;
     }
 
+	/**
+     * set file descriptor to camera hAL for writing file
+     * on android4.2 by fuqiang.
+     */
+	status_t setFd(int fd)
+    {
+        ALOGV("%s(%d)", __FUNCTION__, fd);
+        if (mDevice->ops->set_fd)
+            return mDevice->ops->set_fd(mDevice, fd);
+        return INVALID_OPERATION;
+    }
+
     /** Return the camera parameters. */
     CameraParameters getParameters() const
     {

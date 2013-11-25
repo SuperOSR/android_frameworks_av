@@ -271,6 +271,11 @@ bool NuPlayerDriver::isPlaying() {
     return mState == STATE_RUNNING && !mAtEOS;
 }
 
+int NuPlayerDriver::getMeidaPlayerState() {
+    ALOGV("getMeidaPlayerState");
+    return PLAYER_STATE_SUSPEND;
+}
+
 status_t NuPlayerDriver::seekTo(int msec) {
     Mutex::Autolock autoLock(mLock);
 

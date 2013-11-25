@@ -1224,6 +1224,10 @@ status_t Camera2Client::setParameters(const String8& params) {
     return res;
 }
 
+status_t Camera2Client::setFd(int fd) {
+    return OK;
+}
+
 String8 Camera2Client::getParameters() const {
     ATRACE_CALL();
     ALOGV("%s: Camera %d", __FUNCTION__, mCameraId);

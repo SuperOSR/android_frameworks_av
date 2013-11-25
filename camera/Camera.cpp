@@ -216,6 +216,15 @@ status_t Camera::setParameters(const String8& params)
     return c->setParameters(params);
 }
 
+//set file descriptor to the camera HAL for writing file by fuqiang.
+status_t Camera::setFd(int fd)
+{
+    ALOGV("Camera setFd fd = %d", fd);
+    sp <ICamera> c = mCamera;
+    if (c == 0) return NO_INIT;
+    return c->setFd(fd);
+}
+
 // get preview/capture parameters - key/value pairs
 String8 Camera::getParameters() const
 {

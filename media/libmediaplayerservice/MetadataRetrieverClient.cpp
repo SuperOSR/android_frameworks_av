@@ -38,6 +38,7 @@
 #include "MetadataRetrieverClient.h"
 #include "StagefrightMetadataRetriever.h"
 #include "MediaPlayerFactory.h"
+#include "CedarXMetadataRetriever.h"
 
 namespace android {
 
@@ -83,6 +84,12 @@ static sp<MediaMetadataRetrieverBase> createRetriever(player_type playerType)
 {
     sp<MediaMetadataRetrieverBase> p;
     switch (playerType) {
+        case CEDARX_PLAYER:
+    	case CEDARA_PLAYER:
+        {
+            p = new CedarXMetadataRetriever;
+            break;
+    	}
         case STAGEFRIGHT_PLAYER:
         case NU_PLAYER:
         {
@@ -162,7 +169,8 @@ status_t MetadataRetrieverClient::setDataSource(int fd, int64_t offset, int64_t 
         MediaPlayerFactory::getPlayerType(NULL /* client */,
                                           fd,
                                           offset,
-                                          length);
+                                          length,
+                                          false);
     ALOGV("player type = %d", playerType);
     sp<MediaMetadataRetrieverBase> p = createRetriever(playerType);
     if (p == NULL) {
@@ -175,45 +183,76 @@ status_t MetadataRetrieverClient::setDataSource(int fd, int64_t offset, int64_t 
     return status;
 }
 
-sp<IMemory> MetadataRetrieverClient::getFrameAtTime(int64_t timeUs, int option)
+sp<IMemory> MetadataRetrieverClient::getStreamAtTime(int64_t timeUs)
 {
-    ALOGV("getFrameAtTime: time(%lld us) option(%d)", timeUs, option);
+	status_t ret;
+	int      nStreamSize;
+
     Mutex::Autolock lock(mLock);
+
     mThumbnail.clear();
-    if (mRetriever == NULL) {
+    if (mRetriever == NULL)
+    {
         ALOGE("retriever is not initialized");
         return NULL;
     }
-    VideoFrame *frame = mRetriever->getFrameAtTime(timeUs, option);
-    if (frame == NULL) {
-        ALOGE("failed to capture a video frame");
-        return NULL;
+
+    mThumbnail = mRetriever->getStreamAtTime(timeUs);
+    if (mThumbnail == NULL)
+    {
+        ALOGE("failed to capture video stream.");
     }
-    size_t size = sizeof(VideoFrame) + frame->mSize;
-    sp<MemoryHeapBase> heap = new MemoryHeapBase(size, 0, "MetadataRetrieverClient");
-    if (heap == NULL) {
-        ALOGE("failed to create MemoryDealer");
-        delete frame;
-        return NULL;
-    }
-    mThumbnail = new MemoryBase(heap, 0, size);
-    if (mThumbnail == NULL) {
-        ALOGE("not enough memory for VideoFrame size=%u", size);
-        delete frame;
-        return NULL;
-    }
-    VideoFrame *frameCopy = static_cast<VideoFrame *>(mThumbnail->pointer());
-    frameCopy->mWidth = frame->mWidth;
-    frameCopy->mHeight = frame->mHeight;
-    frameCopy->mDisplayWidth = frame->mDisplayWidth;
-    frameCopy->mDisplayHeight = frame->mDisplayHeight;
-    frameCopy->mSize = frame->mSize;
-    frameCopy->mRotationAngle = frame->mRotationAngle;
-    ALOGV("rotation: %d", frameCopy->mRotationAngle);
-    frameCopy->mData = (uint8_t *)frameCopy + sizeof(VideoFrame);
-    memcpy(frameCopy->mData, frame->mData, frame->mSize);
-    delete frame;  // Fix memory leakage
+
     return mThumbnail;
+}
+
+sp<IMemory> MetadataRetrieverClient::getFrameAtTime(int64_t timeUs, int option)
+{
+    if(option != 0x3)
+    {
+        ALOGV("getFrameAtTime: time(%lld us) option(%d)", timeUs, option);
+        Mutex::Autolock lock(mLock);
+        mThumbnail.clear();
+        if (mRetriever == NULL) {
+            ALOGE("retriever is not initialized");
+            return NULL;
+        }
+        VideoFrame *frame = mRetriever->getFrameAtTime(timeUs, option);
+        if (frame == NULL) {
+            ALOGE("failed to capture a video frame");
+            return NULL;
+        }
+        size_t size = sizeof(VideoFrame) + frame->mSize;
+        sp<MemoryHeapBase> heap = new MemoryHeapBase(size, 0, "MetadataRetrieverClient");
+        if (heap == NULL) {
+            ALOGE("failed to create MemoryDealer");
+            delete frame;
+            return NULL;
+        }
+        mThumbnail = new MemoryBase(heap, 0, size);
+        if (mThumbnail == NULL) {
+            ALOGE("not enough memory for VideoFrame size=%u", size);
+            delete frame;
+            return NULL;
+        }
+        VideoFrame *frameCopy = static_cast<VideoFrame *>(mThumbnail->pointer());
+        frameCopy->mWidth = frame->mWidth;
+        frameCopy->mHeight = frame->mHeight;
+        frameCopy->mDisplayWidth = frame->mDisplayWidth;
+        frameCopy->mDisplayHeight = frame->mDisplayHeight;
+        frameCopy->mSize = frame->mSize;
+        frameCopy->mRotationAngle = frame->mRotationAngle;
+        ALOGV("rotation: %d", frameCopy->mRotationAngle);
+        frameCopy->mData = (uint8_t *)frameCopy + sizeof(VideoFrame);
+        memcpy(frameCopy->mData, frame->mData, frame->mSize);
+        delete frame;  // Fix memory leakage
+        return mThumbnail;
+    }
+    else
+    {
+        ALOGD("getStreamAtTime: time(%lld us) option(%d)", timeUs, option);
+    	return getStreamAtTime(timeUs);
+    }
 }
 
 sp<IMemory> MetadataRetrieverClient::extractAlbumArt()

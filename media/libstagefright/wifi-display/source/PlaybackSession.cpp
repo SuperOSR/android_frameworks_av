@@ -559,6 +559,20 @@ void WifiDisplaySource::PlaybackSession::onMessageReceived(
                         converter->dropAFrame();
                     }
                 }
+            } else if (what == Sender::kWhatBitrateChange) {
+                int32_t encoderBitrate;
+                CHECK(msg->findInt32("encoderBitrate", &encoderBitrate));
+                ALOGV("Set Encoder Bitrate[%d]", encoderBitrate);
+                //trackIndex 0 is video and 1 is audio, ignore audio!
+                for (size_t i = 0; i < mTracks.size(); ++i) {
+                    const sp<Converter> &converter =
+                        mTracks.valueAt(i)->converter();
+                    converter->setEncoderBitrate(encoderBitrate);
+                    if(i == 0) {
+                        ALOGV("just set video encoder bitrate.");
+                        break;
+                    }
+                }
             } else {
                 TRESPASS();
             }
@@ -959,6 +973,26 @@ status_t WifiDisplaySource::PlaybackSession::addAudioSource(bool usePCMAudio) {
 
 sp<IGraphicBufferProducer> WifiDisplaySource::PlaybackSession::getSurfaceTexture() {
     return mBufferQueue;
+}
+
+int32_t WifiDisplaySource::PlaybackSession::width() const {
+#if defined(USE_1080P)
+    return 1920;
+#elif defined(USE_480P)
+    return 736; //It can't be 720, 32bits alignment.
+#else // defined(USE_720P) default
+    return 1280;
+#endif
+}
+
+int32_t WifiDisplaySource::PlaybackSession::height() const {
+#if defined(USE_1080P)
+    return 1080;
+#elif defined(USE_480P)
+    return 480;
+#else // defined(USE_720P) default
+    return 720;
+#endif
 }
 
 void WifiDisplaySource::PlaybackSession::requestIDRFrame() {

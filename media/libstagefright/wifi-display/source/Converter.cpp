@@ -188,7 +188,7 @@ status_t Converter::initEncoder() {
     mOutputFormat->setString("mime", outputMIME.c_str());
 
     int32_t audioBitrate = GetInt32Property("media.wfd.audio-bitrate", 128000);
-    int32_t videoBitrate = GetInt32Property("media.wfd.video-bitrate", 5000000);
+    int32_t videoBitrate = GetInt32Property("media.wfd.video-bitrate", 3000000);
     mPrevVideoBitrate = videoBitrate;
 
     ALOGI("using audio bitrate of %d bps, video bitrate of %d bps",
@@ -423,6 +423,24 @@ void Converter::onMessageReceived(const sp<AMessage> &msg) {
         case kWhatShutdown:
         {
             ALOGI("shutting down %s encoder", mIsVideo ? "video" : "audio");
+
+            /*bugfix: release queue buffer,it may fall into blackhold.
+             *		when 4kplayer is floating in the dynamic desktop,
+             *		and someone disable wifi in the quicksetting, this will lead to UI deadlock.
+             *   It mainly let the source emit onDisplayDisconnect msg to framework.
+             */
+            while (!mInputBufferQueue.empty()) {
+                sp<ABuffer> accessUnit = *mInputBufferQueue.begin();
+                mInputBufferQueue.erase(mInputBufferQueue.begin());
+                void *mbuf = NULL;
+                if (accessUnit->meta()->findPointer("mediaBuffer", &mbuf)
+                        && mbuf != NULL) {
+                    ALOGI(">>releasing mbuf %p", mbuf);
+                    accessUnit->meta()->setPointer("mediaBuffer", NULL);
+                    static_cast<MediaBuffer *>(mbuf)->release();
+                    mbuf = NULL;
+                }
+            }
 
             releaseEncoder();
 
@@ -701,6 +719,12 @@ void Converter::requestIDRFrame() {
     (new AMessage(kWhatRequestIDRFrame, id()))->post();
 }
 
+status_t Converter::setEncoderBitrate(int32_t bitrate) {
+    if(mEncoder == NULL)
+        return NO_INIT;
+    return mEncoder->setEncoderBitrate(bitrate);
+}
+
 void Converter::dropAFrame() {
     (new AMessage(kWhatDropAFrame, id()))->post();
 }
@@ -718,6 +742,5 @@ void Converter::setVideoBitrate(int32_t bitRate) {
 
         mPrevVideoBitrate = bitRate;
     }
-}
 
 }  // namespace android

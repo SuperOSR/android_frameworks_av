@@ -69,6 +69,10 @@
 #include "StagefrightPlayer.h"
 #include "nuplayer/NuPlayerDriver.h"
 
+#include "CedarPlayer.h"
+#include "CedarAPlayerWrapper.h"
+#include "SimpleMediaFormatProbe.h"
+
 #include <OMX.h>
 
 #include "Crypto.h"
@@ -76,6 +80,44 @@
 #include "HDCP.h"
 #include "HTTPBase.h"
 #include "RemoteDisplay.h"
+
+/* add by Gary. start {{----------------------------------- */
+/* save the screen info */
+#define PROP_SCREEN_KEY             "mediasw.sft.screen"
+#define PROP_MASTER_SCREEN          "master"
+#define PROP_SLAVE_SCREEN           "slave"
+#define PROP_SCREEN_DEFAULT_VALUE   PROP_MASTER_SCREEN
+/* add by Gary. end   -----------------------------------}} */
+
+/* add by Gary. start {{----------------------------------- */
+/* 2011-11-14 */
+/* support adjusting colors while playing video */
+#define PROP_VPP_GATE_KEY           "mediasw.sft.vpp_gate"
+#define PROP_ENABLE_VPP             "enable vpp"
+#define PROP_DISABLE_VPP            "disable vpp"
+#define PROP_VPP_GATE_DEFAULT_VALUE PROP_DISABLE_VPP
+
+#define PROP_LUMA_SHARP_KEY           "mediasw.sft.luma_sharp"
+#define PROP_LUMA_SHARP_DEFAULT_VALUE PROP_DISABLE_VPP
+
+#define PROP_CHROMA_SHARP_KEY           "mediasw.sft.chroma_sharp"
+#define PROP_CHROMA_SHARP_DEFAULT_VALUE PROP_DISABLE_VPP
+
+#define PROP_WHITE_EXTEND_KEY           "mediasw.sft.white_extend"
+#define PROP_WHITE_EXTEND_DEFAULT_VALUE PROP_DISABLE_VPP
+
+#define PROP_BLACK_EXTEND_KEY           "mediasw.sft.black_extend"
+#define PROP_BLACK_EXTEND_DEFAULT_VALUE PROP_DISABLE_VPP
+/* add by Gary. end   -----------------------------------}} */
+
+/* add by Gary. start {{----------------------------------- */
+/* 2012-03-12 */
+/* add the global interfaces to control the subtitle gate  */
+#define PROP_GLOBAL_SUB_GATE_KEY           "persist.mediasw.sft.sub_gate"
+#define PROP_ENABLE_GLOBAL_SUB             "enable global sub"
+#define PROP_DISABLE_GLOBAL_SUB            "disable global sub"
+#define PROP_GLOBAL_SUB_GATE_DEFAULT_VALUE PROP_ENABLE_GLOBAL_SUB
+/* add by Gary. end   -----------------------------------}} */
 
 namespace {
 using android::media::Metadata;
@@ -198,6 +240,7 @@ static bool checkPermission(const char* permissionString) {
 // TODO: Find real cause of Audio/Video delay in PV framework and remove this workaround
 /* static */ int MediaPlayerService::AudioOutput::mMinBufferCount = 4;
 /* static */ bool MediaPlayerService::AudioOutput::mIsOnEmulator = false;
+/* static */ int MediaPlayerService::mHdmiPlugged = 0;
 
 void MediaPlayerService::instantiate() {
     defaultServiceManager()->addService(
@@ -219,6 +262,32 @@ MediaPlayerService::MediaPlayerService()
     mBatteryAudio.deviceOn[SPEAKER] = 1;
 
     MediaPlayerFactory::registerBuiltinFactories();
+
+    /* add by Gary. start {{----------------------------------- */
+    char prop_value[PROPERTY_VALUE_MAX];
+    property_get(PROP_SCREEN_KEY, prop_value, PROP_SCREEN_DEFAULT_VALUE);
+    ALOGV("prop_value = %s", prop_value);
+    String8 value( prop_value );
+    if(value == PROP_MASTER_SCREEN)
+        mScreen = MASTER_SCREEN;
+    else
+        mScreen = SLAVE_SCREEN;
+    /* add by Gary. end   -----------------------------------}} */
+    
+    /* add by Gary. start {{----------------------------------- */
+    /* 2012-03-12 */
+    /* add the global interfaces to control the subtitle gate  */
+    property_get(PROP_GLOBAL_SUB_GATE_KEY, prop_value, PROP_GLOBAL_SUB_GATE_DEFAULT_VALUE);
+    ALOGV("prop_value of PROP_GLOBAL_SUB_GATE_KEY = %s", prop_value);
+    String8 global_sub_value(prop_value);
+    if(global_sub_value == PROP_ENABLE_GLOBAL_SUB)
+        mGlobalSubGate = true;
+    else
+        mGlobalSubGate = false;
+    /* add by Gary. end   -----------------------------------}} */  
+    /*Add by eric_wang. record hdmi state, 20130318 */
+    mHdmiPlugged = 0;
+    /*Add by eric_wang. record hdmi state, 20130318, end ---------- */
 }
 
 MediaPlayerService::~MediaPlayerService()
@@ -264,6 +333,10 @@ sp<IMediaPlayer> MediaPlayerService::create(const sp<IMediaPlayerClient>& client
 
     ALOGV("Create new client(%d) from pid %d, uid %d, ", connId, pid,
          IPCThreadState::self()->getCallingUid());
+    /* add by Gary. start {{----------------------------------- */
+    c->setScreen(mScreen);
+    /* add by Gary. end   -----------------------------------}} */
+    c->setSubGate(mGlobalSubGate);  // 2012-03-12, add the global interfaces to control the subtitle gate
 
     wp<Client> w = c;
     {
@@ -655,6 +728,21 @@ status_t MediaPlayerService::Client::setDataSource(
             return NO_INIT;
         }
 
+        /* add by Gary. start {{----------------------------------- */
+        /* 2011-9-28 16:28:24 */
+        /* save properties before creating the real player */
+        p->setSubGate(mSubGate);
+        p->setSubColor(mSubColor);
+        p->setSubFrameColor(mSubFrameColor);
+        p->setSubPosition(mSubPosition);
+        p->setSubDelay(mSubDelay);
+        p->setSubFontSize(mSubFontSize);
+        p->setSubCharset(mSubCharset);
+		p->switchSub(mSubIndex);
+		p->switchTrack(mTrackIndex);
+        p->setChannelMuteMode(mMuteMode); // 2012-03-07, set audio channel mute
+        /* add by Gary. end   -----------------------------------}} */
+      
         setDataSource_post(p, p->setDataSource(url, headers));
         return mStatus;
     }
@@ -689,7 +777,10 @@ status_t MediaPlayerService::Client::setDataSource(int fd, int64_t offset, int64
     player_type playerType = MediaPlayerFactory::getPlayerType(this,
                                                                fd,
                                                                offset,
-                                                               length);
+                                                               length,
+                                                               true
+                                                               );
+    
     sp<MediaPlayerBase> p = setDataSource_pre(playerType);
     if (p == NULL) {
         return NO_INIT;
@@ -709,8 +800,53 @@ status_t MediaPlayerService::Client::setDataSource(
         return NO_INIT;
     }
 
+    /* add by Gary. start {{----------------------------------- */
+    /* 2011-9-28 16:28:24 */
+    /* save properties before creating the real player */
+    p->setSubGate(mSubGate);
+    p->setSubColor(mSubColor);
+    p->setSubFrameColor(mSubFrameColor);
+    p->setSubPosition(mSubPosition);
+    p->setSubDelay(mSubDelay);
+    p->setSubFontSize(mSubFontSize);
+    p->setSubCharset(mSubCharset);
+	p->switchSub(mSubIndex);
+	p->switchTrack(mTrackIndex);
+    p->setChannelMuteMode(mMuteMode); // 2012-03-07, set audio channel mute
+    /* add by Gary. end   -----------------------------------}} */
+
     // now set data source
     setDataSource_post(p, p->setDataSource(source));
+    return mStatus;
+}
+
+status_t MediaPlayerService::Client::setDataSource(
+        const sp<IStreamSource> &source, int type) {
+
+	sp<MediaPlayerBase> p = setDataSource_pre(CEDARX_PLAYER);
+	if (p == NULL) {
+		return NO_INIT;
+	}
+
+    /* add by Gary. start {{----------------------------------- */
+    /* 2011-9-28 16:28:24 */
+    /* save properties before creating the real player */
+    p->setSubGate(mSubGate);
+    p->setSubColor(mSubColor);
+    p->setSubFrameColor(mSubFrameColor);
+    p->setSubPosition(mSubPosition);
+    p->setSubDelay(mSubDelay);
+    p->setSubFontSize(mSubFontSize);
+    p->setSubCharset(mSubCharset);
+	p->switchSub(mSubIndex);
+	p->switchTrack(mTrackIndex);
+    p->setChannelMuteMode(mMuteMode); // 2012-03-07, set audio channel mute
+    /* add by Gary. end   -----------------------------------}} */
+
+    setDataSource_post(p, p->setDataSource(source));
+
+    generalInterface(MEDIAPLAYER_CMD_SET_STREAMING_TYPE, type, 0, 0, NULL);
+
     return mStatus;
 }
 
@@ -844,6 +980,8 @@ status_t MediaPlayerService::Client::getMetadata(
     return OK;
 }
 
+extern int getRotation();
+
 status_t MediaPlayerService::Client::prepareAsync()
 {
     ALOGV("[%d] prepareAsync", mConnId);
@@ -868,10 +1006,15 @@ status_t MediaPlayerService::Client::start()
 
 status_t MediaPlayerService::Client::stop()
 {
+    status_t ret;
     ALOGV("[%d] stop", mConnId);
     sp<MediaPlayerBase> p = getPlayer();
     if (p == 0) return UNKNOWN_ERROR;
-    return p->stop();
+    //return p->stop();
+    ret = p->stop();
+    disconnectNativeWindow();
+    IPCThreadState::self()->flushCommands();
+    return ret;
 }
 
 status_t MediaPlayerService::Client::pause()
@@ -929,6 +1072,13 @@ status_t MediaPlayerService::Client::setNextPlayer(const sp<IMediaPlayer>& playe
     if (c != NULL) {
         if (mAudioOutput != NULL) {
             mAudioOutput->setNextOutput(c->mAudioOutput);
+            if(mMsg == MEDIA_PLAYBACK_COMPLETE)//lszhang add
+    		{
+    			mMsg = MEDIA_NOP;
+    			mAudioOutput->switchToNextOutput();
+    	        mNextClient->start();
+    	        mNextClient->mClient->notify(MEDIA_INFO, MEDIA_INFO_STARTED_AS_NEXT, 0, 0);
+    		}
         } else if ((mPlayer != NULL) && !mPlayer->hardwareOutput()) {
             ALOGE("no current audio output");
         }
@@ -1027,6 +1177,746 @@ status_t MediaPlayerService::Client::getParameter(int key, Parcel *reply) {
     return p->getParameter(key, reply);
 }
 
+/* add by Gary. start {{----------------------------------- */
+status_t MediaPlayerService::setScreen(int screen)
+{
+    ALOGV("setScreen(%d)", screen);
+    if( screen != MASTER_SCREEN && screen != SLAVE_SCREEN )
+        return BAD_VALUE;
+    if( screen == mScreen )
+        return OK;
+        
+    status_t ret = OK;
+    for (int i = 0, n = mClients.size(); i < n; ++i) {
+        sp<Client> c = mClients[i].promote();
+        if (c != 0) {
+            status_t temp = c->setScreen(screen);
+            if( temp != OK )
+                ret = temp;
+        }
+    }
+    
+    mScreen = screen;
+    
+    if(mScreen == MASTER_SCREEN)
+        property_set(PROP_SCREEN_KEY, PROP_MASTER_SCREEN);
+    else
+        property_set(PROP_SCREEN_KEY, PROP_SLAVE_SCREEN);
+    char prop_value[PROPERTY_VALUE_MAX];
+    property_get(PROP_SCREEN_KEY, prop_value, "no screen");
+    ALOGV("prop_value = %s", prop_value);
+        
+    return ret;
+}
+
+status_t MediaPlayerService::getScreen(int *screen)
+{
+    ALOGV("get Screen");
+    if( screen == NULL )
+        return BAD_VALUE;
+        
+    *screen = mScreen;
+    return OK;
+}
+
+status_t MediaPlayerService::Client::setScreen(int screen)
+{
+    ALOGV("[%d] setScreen(%d)", mConnId, screen);
+    mScreen = screen;
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) 
+        return UNKNOWN_ERROR;
+    return p->setScreen(screen);
+}
+
+status_t MediaPlayerService::isPlayingVideo(int *playing)
+{
+    status_t ret = OK;
+    *playing = 0;
+    for (int i = 0, n = mClients.size(); i < n; ++i) {
+        sp<Client> c = mClients[i].promote();
+        if (c != 0) {
+            c->isPlayingVideo(playing);
+            if( *playing == 1 )
+                return OK;
+        }
+    }
+    
+    return ret;
+}
+
+status_t MediaPlayerService::Client::isPlayingVideo(int *playing)
+{
+	sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) {
+    	*playing = 0;
+        return OK;
+    }
+
+    *playing = mHasSurface && (p->getMeidaPlayerState() != PLAYER_STATE_SUSPEND);
+
+    if (*playing) {
+    	generalInterface(MEDIAPLAYER_CMD_QUERY_HWLAYER_RENDER, 0, 0, 0, playing);
+    }
+
+    ALOGV("isPlayingVideo:%d",*playing);
+
+    return OK;
+}
+
+/* add by Gary. end   -----------------------------------}} */
+
+/* add by Gary. start {{----------------------------------- */
+/* 2011-9-15 15:41:36 */
+/* expend interfaces about subtitle, track and so on */
+int MediaPlayerService::Client::getSubCount()
+{
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) 
+        return -1;
+    return p->getSubCount();
+}
+
+
+int MediaPlayerService::Client::getSubList(MediaPlayer_SubInfo *infoList, int count)
+{
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) 
+        return -1;
+    return p->getSubList((MediaPlayer_SubInfo *)infoList, count);
+}
+
+int MediaPlayerService::Client::getCurSub()
+{
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) 
+        return -1;
+    return p->getCurSub();
+}
+
+status_t MediaPlayerService::Client::switchSub(int index)
+{
+    mSubIndex = index;
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) 
+        return UNKNOWN_ERROR;
+    return p->switchSub(index);
+}
+
+status_t MediaPlayerService::Client::setSubGate(bool showSub)
+{
+    ALOGV("MediaPlayerService::Client::setSubGate(): showSub = %d", showSub);
+    mSubGate = showSub;
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) 
+        return OK;
+    return p->setSubGate(showSub);
+}
+
+bool MediaPlayerService::Client::getSubGate()
+{
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) 
+        return true;
+    return p->getSubGate();
+}
+
+status_t MediaPlayerService::Client::setSubColor(int color)
+{
+    mSubColor = color;
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) 
+        return OK;
+    return p->setSubColor(color);
+}
+
+int MediaPlayerService::Client::getSubColor()
+{
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) 
+        return 0xFFFFFFFF;
+    return p->getSubColor();
+}
+
+status_t MediaPlayerService::Client::setSubFrameColor(int color)
+{
+    mSubFrameColor = color;
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) 
+        return OK;
+    return p->setSubFrameColor(color);
+}
+
+int MediaPlayerService::Client::getSubFrameColor()
+{
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) 
+        return 0xFFFFFFFF;
+    return p->getSubFrameColor();
+}
+
+status_t MediaPlayerService::Client::setSubFontSize(int size)
+{
+    mSubFontSize = size;
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) 
+        return OK;
+    return p->setSubFontSize(size);
+}
+
+int MediaPlayerService::Client::getSubFontSize()
+{
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) 
+        return -1;
+    return p->getSubFontSize();
+}
+
+status_t MediaPlayerService::Client::setSubCharset(const char *charset)
+{
+    strcpy(mSubCharset, charset);
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) 
+        return OK;
+    return p->setSubCharset(charset);
+}
+
+status_t MediaPlayerService::Client::getSubCharset(char *charset)
+{
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) 
+        return UNKNOWN_ERROR;
+    return p->getSubCharset(charset);
+}
+
+status_t MediaPlayerService::Client::setSubPosition(int percent)
+{
+    mSubPosition = percent;
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) 
+        return OK;
+    return p->setSubPosition(percent);
+}
+
+int MediaPlayerService::Client::getSubPosition()
+{
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) 
+        return -1;
+    return p->getSubPosition();
+}
+
+status_t MediaPlayerService::Client::setSubDelay(int time)
+{
+    mSubDelay = time;
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) 
+        return OK;
+    return p->setSubDelay(time);
+}
+
+int MediaPlayerService::Client::getSubDelay()
+{
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) 
+        return 0;
+    return p->getSubDelay();
+}
+
+int MediaPlayerService::Client::getTrackCount()
+{
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) 
+        return -1;
+    return p->getTrackCount();
+}
+
+int MediaPlayerService::Client::getTrackList(MediaPlayer_TrackInfo *infoList, int count)
+{
+    sp<MediaPlayerBase> p = getPlayer();
+
+    if (p == 0) 
+        return -1;
+    return p->getTrackList((MediaPlayer_TrackInfo *)infoList, count);
+}
+
+int MediaPlayerService::Client::getCurTrack()
+{
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) 
+        return -1;
+    return p->getCurTrack();
+}
+
+status_t MediaPlayerService::Client::switchTrack(int index)
+{
+    mTrackIndex = index;
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) 
+        return UNKNOWN_ERROR;
+    return p->switchTrack(index);
+}
+
+status_t MediaPlayerService::Client::setInputDimensionType(int type)
+{
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) 
+        return UNKNOWN_ERROR;
+    return p->setInputDimensionType(type);
+}
+
+int MediaPlayerService::Client::getInputDimensionType()
+{
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) 
+        return -1;
+    return p->getInputDimensionType();
+}
+
+status_t MediaPlayerService::Client::setOutputDimensionType(int type)
+{
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) 
+        return UNKNOWN_ERROR;
+    return p->setOutputDimensionType(type);
+}
+
+int MediaPlayerService::Client::getOutputDimensionType()
+{
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) 
+        return -1;
+    return p->getOutputDimensionType();
+}
+
+status_t MediaPlayerService::Client::setAnaglaghType(int type)
+{
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) 
+        return UNKNOWN_ERROR;
+    return p->setAnaglaghType(type);
+}
+
+int MediaPlayerService::Client::getAnaglaghType()
+{
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) 
+        return -1;
+    return p->getAnaglaghType();
+}
+
+status_t MediaPlayerService::Client::getVideoEncode(char *encode)
+{
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0)
+        return UNKNOWN_ERROR;
+    return p->getVideoEncode(encode);
+}
+
+int MediaPlayerService::Client::getVideoFrameRate()
+{
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0)
+        return UNKNOWN_ERROR;
+    return p->getVideoFrameRate();
+}
+
+status_t MediaPlayerService::Client::getAudioEncode(char *encode)
+{
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0)
+        return UNKNOWN_ERROR;
+    return p->getAudioEncode(encode);
+}
+
+int MediaPlayerService::Client::getAudioBitRate()
+{
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0)
+        return UNKNOWN_ERROR;
+    return p->getAudioBitRate();
+}
+
+int MediaPlayerService::Client::getAudioSampleRate()
+{
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0)
+        return UNKNOWN_ERROR;
+    return p->getAudioSampleRate();
+}
+
+/* add by Gary. end   -----------------------------------}} */
+
+
+/* add by Gary. start {{----------------------------------- */
+/* 2011-11-14 */
+/* support scale mode */
+status_t MediaPlayerService::Client::enableScaleMode(bool enable, int width, int height)
+{
+    mEnableScaleMode = enable;
+    mScaleWidth = width;
+    mScaleHeight = height;
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) 
+        return UNKNOWN_ERROR;
+    return p->enableScaleMode(enable, width, height);
+}
+/* add by Gary. end   -----------------------------------}} */
+
+/* add by Gary. start {{----------------------------------- */
+/* 2011-11-14 */
+/* support adjusting colors while playing video */
+status_t MediaPlayerService::setVppGate(bool enableVpp)
+{
+    if( enableVpp == mVppGate )
+        return OK;
+        
+    status_t ret = OK;
+    for (int i = 0, n = mClients.size(); i < n; ++i) {
+        sp<Client> c = mClients[i].promote();
+        if (c != 0) {
+            status_t temp = c->setVppGate(enableVpp);
+            if( temp != OK )
+                ret = temp;
+        }
+    }
+    
+    mVppGate = enableVpp;
+    
+    if(mVppGate)
+        property_set(PROP_VPP_GATE_KEY, PROP_ENABLE_VPP);
+    else
+        property_set(PROP_VPP_GATE_KEY, PROP_DISABLE_VPP);
+    char prop_value[PROPERTY_VALUE_MAX];
+    property_get(PROP_VPP_GATE_KEY, prop_value, "no enableVpp");
+    ALOGV("prop_value of PROP_VPP_GATE_KEY = %s", prop_value);
+        
+    return ret;
+}
+
+bool MediaPlayerService::getVppGate()
+{
+    return mVppGate;
+}
+
+status_t MediaPlayerService::Client::setVppGate(bool enableVpp)
+{
+    mVppGate = enableVpp;
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) 
+        return UNKNOWN_ERROR;
+    return p->setVppGate(enableVpp);
+}
+
+status_t MediaPlayerService::setLumaSharp(int value)
+{
+    if(value < 0)
+        return BAD_VALUE;
+        
+    value %= 5;
+    
+    if( value == mLumaSharp )
+        return OK;
+        
+    status_t ret = OK;
+    for (int i = 0, n = mClients.size(); i < n; ++i) {
+        sp<Client> c = mClients[i].promote();
+        if (c != 0) {
+            status_t temp = c->setLumaSharp(value);
+            if( temp != OK )
+                ret = temp;
+        }
+    }
+    
+    mLumaSharp = value;
+    
+    char prop_value[2] = "\0";
+    prop_value[0] = "01234"[value];    
+    property_set(PROP_LUMA_SHARP_KEY, prop_value);
+    
+    char prop_value2[PROPERTY_VALUE_MAX];
+    property_get(PROP_LUMA_SHARP_KEY, prop_value2, "no proper LUMA_SHARP");
+    ALOGV("prop_value of PROP_LUMA_SHARP_KEY = %s", prop_value2);
+        
+    return ret;
+}
+
+int MediaPlayerService::getLumaSharp()
+{
+    return mLumaSharp;
+}
+
+status_t MediaPlayerService::Client::setLumaSharp(int value)
+{
+    mLumaSharp = value;
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) 
+        return UNKNOWN_ERROR;
+    return p->setLumaSharp(value);
+}
+
+status_t MediaPlayerService::setChromaSharp(int value)
+{
+    if(value < 0)
+        return BAD_VALUE;
+        
+    value %= 5;
+    
+    if( value == mChromaSharp )
+        return OK;
+        
+    status_t ret = OK;
+    for (int i = 0, n = mClients.size(); i < n; ++i) {
+        sp<Client> c = mClients[i].promote();
+        if (c != 0) {
+            status_t temp = c->setChromaSharp(value);
+            if( temp != OK )
+                ret = temp;
+        }
+    }
+    
+    mChromaSharp = value;
+    
+    char prop_value[2] = "\0";
+    prop_value[0] = "01234"[value];    
+    property_set(PROP_CHROMA_SHARP_KEY, prop_value);
+    
+    char prop_value2[PROPERTY_VALUE_MAX];
+    property_get(PROP_CHROMA_SHARP_KEY, prop_value2, "no proper CHROMA_SHARP");
+    ALOGV("prop_value of PROP_CHROMA_SHARP_KEY = %s", prop_value2);
+        
+    return ret;
+}
+
+int MediaPlayerService::getChromaSharp()
+{
+    return mChromaSharp;
+}
+
+status_t MediaPlayerService::Client::setChromaSharp(int value)
+{
+    mChromaSharp = value;
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) 
+        return UNKNOWN_ERROR;
+    return p->setChromaSharp(value);
+}
+
+status_t MediaPlayerService::setWhiteExtend(int value)
+{
+    if(value < 0)
+        return BAD_VALUE;
+        
+    value %= 5;
+    
+    if( value == mWhiteExtend )
+        return OK;
+        
+    status_t ret = OK;
+    for (int i = 0, n = mClients.size(); i < n; ++i) {
+        sp<Client> c = mClients[i].promote();
+        if (c != 0) {
+            status_t temp = c->setWhiteExtend(value);
+            if( temp != OK )
+                ret = temp;
+        }
+    }
+    
+    mWhiteExtend = value;
+    
+    char prop_value[2] = "\0";
+    prop_value[0] = "01234"[value];    
+    property_set(PROP_WHITE_EXTEND_KEY, prop_value);
+    
+    char prop_value2[PROPERTY_VALUE_MAX];
+    property_get(PROP_WHITE_EXTEND_KEY, prop_value2, "no proper WHITE_EXTEND");
+    ALOGV("prop_value of PROP_WHITE_EXTEND_KEY = %s", prop_value2);
+        
+    return ret;
+}
+
+int MediaPlayerService::getWhiteExtend()
+{
+    return mWhiteExtend;
+}
+
+status_t MediaPlayerService::Client::setWhiteExtend(int value)
+{
+    mWhiteExtend = value;
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) 
+        return UNKNOWN_ERROR;
+    return p->setWhiteExtend(value);
+}
+
+status_t MediaPlayerService::setBlackExtend(int value)
+{
+    if(value < 0)
+        return BAD_VALUE;
+        
+    value %= 5;
+    
+    if( value == mBlackExtend )
+        return OK;
+        
+    status_t ret = OK;
+    for (int i = 0, n = mClients.size(); i < n; ++i) {
+        sp<Client> c = mClients[i].promote();
+        if (c != 0) {
+            status_t temp = c->setBlackExtend(value);
+            if( temp != OK )
+                ret = temp;
+        }
+    }
+    
+    mBlackExtend = value;
+    
+    char prop_value[2] = "\0";
+    prop_value[0] = "01234"[value];
+    property_set(PROP_BLACK_EXTEND_KEY, prop_value);
+    
+    char prop_value2[PROPERTY_VALUE_MAX];
+    property_get(PROP_BLACK_EXTEND_KEY, prop_value2, "no proper BLACK_EXTEND");
+    ALOGV("prop_value of PROP_BLACK_EXTEND_KEY = %s", prop_value2);
+        
+    return ret;
+}
+
+int MediaPlayerService::getBlackExtend()
+{
+    return mBlackExtend;
+}
+
+status_t MediaPlayerService::Client::setBlackExtend(int value)
+{
+    mBlackExtend = value;
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) 
+        return UNKNOWN_ERROR;
+    return p->setBlackExtend(value);
+}
+
+/* add by Gary. end   -----------------------------------}} */
+
+/* add by Gary. start {{----------------------------------- */
+/* 2012-03-07 */
+/* set audio channel mute */
+status_t MediaPlayerService::Client::setChannelMuteMode(int muteMode)
+{
+    mMuteMode = muteMode;
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) 
+        return OK;
+    return p->setChannelMuteMode(muteMode);
+}
+
+int MediaPlayerService::Client::getChannelMuteMode()
+{
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) 
+        return -1;
+    return p->getChannelMuteMode();
+}
+/* add by Gary. end   -----------------------------------}} */
+
+/* add by Gary. start {{----------------------------------- */
+/* 2012-03-12 */
+/* add the global interfaces to control the subtitle gate  */
+status_t MediaPlayerService::setGlobalSubGate(bool showSub)
+{
+    ALOGV("MediaPlayerService::setGlobalSubGate(): enable = %d", showSub);
+    if( showSub == mGlobalSubGate )
+        return OK;
+        
+    status_t ret = OK;
+    for (int i = 0, n = mClients.size(); i < n; ++i) {
+        sp<Client> c = mClients[i].promote();
+        if (c != 0) {
+            status_t temp = c->setSubGate(showSub);
+            if( temp != OK )
+                ret = temp;
+        }
+    }
+    
+    mGlobalSubGate = showSub;
+    
+    if(mGlobalSubGate)
+        property_set(PROP_GLOBAL_SUB_GATE_KEY, PROP_ENABLE_GLOBAL_SUB);
+    else
+        property_set(PROP_GLOBAL_SUB_GATE_KEY, PROP_DISABLE_GLOBAL_SUB);
+    char prop_value[PROPERTY_VALUE_MAX];
+    property_get(PROP_GLOBAL_SUB_GATE_KEY, prop_value, "no showSub");
+
+    return ret;
+}
+
+bool MediaPlayerService::getGlobalSubGate()
+{
+    return mGlobalSubGate;
+}
+/* add by Gary. end   -----------------------------------}} */
+
+/* add by Gary. start {{----------------------------------- */
+/* 2012-4-24 */
+/* add two general interfaces for expansibility */
+status_t MediaPlayerService::generalGlobalInterface(int cmd, int int1, int int2, int int3, void *p)
+{
+    switch(cmd){
+        case MEDIAPLAYER_GLOBAL_CMD_TEST:{
+            ALOGD("MEDIAPLAYER_GLOBAL_CMD_TEST: int1 = %d", int1);
+            *((int *)p) = 111;
+            ALOGD("*p = %d", *((int *)p));
+        }break;
+		case MEDIAPLAYER_CMD_IS_ROTATABLE:{
+			ALOGD("MEDIAPLAYER_CMD_IS_ROTATABLE...");
+		}break;
+		case MEDIAPLAYER_CMD_SET_ROTATION:{
+			status_t ret = OK;
+            if(1 == mHdmiPlugged)
+            {
+                ALOGD("(f:%s, l:%d)hdmi state is [%d], don't tell vdeclib rotate!", __FUNCTION__, __LINE__, mHdmiPlugged);
+                return ret;
+            }
+			for (int i = 0, n = mClients.size(); i < n; ++i) {
+				sp<Client> c = mClients[i].promote();
+				if (c != 0) {
+					status_t temp = c->generalInterface(MEDIAPLAYER_CMD_SET_ROTATION, int1, int2, int3, p);
+					if( temp != OK )
+						ret = temp;
+				}
+			}
+			return ret;
+		}break;
+        case MEDIAPLAYER_CMD_SET_HDMISTATE:{
+            ALOGD("(f:%s, l:%d)hdmi state is [%d]", __FUNCTION__, __LINE__, int1);
+            mHdmiPlugged = int1;
+        }break;
+        default:{
+            ALOGW("cmd %d is NOT defined.", cmd);
+        }break;
+    }
+    return OK;
+}
+/* add by Gary. end   -----------------------------------}} */
+
+
+status_t MediaPlayerService::Client::generalInterface(int cmd, int int1, int int2, int int3, void *p)
+{
+    sp<MediaPlayerBase> mp = getPlayer();
+    if (mp == 0) 
+        return UNKNOWN_ERROR;
+
+    ALOGD("generalInterface cmd=%d int1=%d int2=%d",cmd, int1, int2);
+    if(cmd == MEDIAPLAYER_CMD_RELEASE_SURFACE_BYHAND) {
+        //disconnectNativeWindow();
+        //IPCThreadState::self()->flushCommands();
+	    ALOGD("RELEASE_SURFACE_BYHAND not implement now");
+        return OK;
+    }
+
+    return mp->generalInterface(cmd, int1, int2, int3, p);
+}
+
 status_t MediaPlayerService::Client::setRetransmitEndpoint(
         const struct sockaddr_in* endpoint) {
 
@@ -1089,10 +1979,18 @@ void MediaPlayerService::Client::notify(
         Mutex::Autolock l(client->mLock);
         c = client->mClient;
         if (msg == MEDIA_PLAYBACK_COMPLETE && client->mNextClient != NULL) {
-            if (client->mAudioOutput != NULL)
-                client->mAudioOutput->switchToNextOutput();
-            client->mNextClient->start();
-            client->mNextClient->mClient->notify(MEDIA_INFO, MEDIA_INFO_STARTED_AS_NEXT, 0, obj);
+            if (client->mNextClient != NULL) {
+				client->mMsg = MEDIA_NOP;
+                
+                if (client->mAudioOutput != NULL)
+                    client->mAudioOutput->switchToNextOutput();
+                client->mNextClient->start();
+                client->mNextClient->mClient->notify(MEDIA_INFO, MEDIA_INFO_STARTED_AS_NEXT, 0, obj);
+            }
+            else
+			{
+				client->mMsg = MEDIA_PLAYBACK_COMPLETE;
+			}
         }
     }
 
@@ -1242,7 +2140,8 @@ sp<IMemory> MediaPlayerService::decode(int fd, int64_t offset, int64_t length, u
     player_type playerType = MediaPlayerFactory::getPlayerType(NULL /* client */,
                                                                fd,
                                                                offset,
-                                                               length);
+                                                               length,
+                                                               false);
     ALOGV("player type = %d", playerType);
 
     // create the right type of player

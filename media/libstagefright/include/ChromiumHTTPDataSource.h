@@ -53,9 +53,26 @@ struct ChromiumHTTPDataSource : public HTTPBase {
 
     virtual status_t reconnectAtOffset(off64_t offset);
 
+    //* add by chenxiaochuan for QQ live stream.
+    virtual AString getRedirectUri(bool getAll = false);
+
     static status_t UpdateProxyConfig(
             const char *host, int32_t port, const char *exclusionList);
 
+    virtual bool isRedirected();
+
+    virtual void setRedirectHost(const char* host);
+
+    virtual void setRedirectPort(const char* port);
+
+    virtual void setRedirectPath(const char* path);
+
+    virtual void setRedirectSpec(const char* path);
+
+    virtual void forceDisconnect();
+
+    virtual void setTimeoutLastUs(int64_t timeoutUs);
+    //* end.
 protected:
     virtual ~ChromiumHTTPDataSource();
 
@@ -70,6 +87,11 @@ private:
         DISCONNECTING
     };
 
+    enum {
+    	//10s
+    	kDefaultReadTimeOutUs = 30*1000*1000,
+    };
+
     const uint32_t mFlags;
 
     mutable Mutex mLock;
@@ -81,6 +103,12 @@ private:
 
     AString mURI;
     KeyedVector<String8, String8> mHeaders;
+
+    AString mRedirectHost;
+    AString mRedirectPort;
+    AString mRedirectPath;
+    AString mRedirectURI;
+    bool    mIsRedirected;
 
     off64_t mCurrentOffset;
 
@@ -94,6 +122,9 @@ private:
 
     sp<DecryptHandle> mDecryptHandle;
     DrmManagerClient *mDrmManagerClient;
+
+    int64_t mReadTimeoutUs;
+    bool mForceDisconnect;
 
     void disconnect_l();
 

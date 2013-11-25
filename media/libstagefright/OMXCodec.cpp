@@ -538,10 +538,11 @@ status_t OMXCodec::configureCodec(const sp<MetaData> &meta) {
         // These are PCM-like formats with a fixed sample rate but
         // a variable number of channels.
 
-        int32_t numChannels;
+        int32_t numChannels, sampleRate;
         CHECK(meta->findInt32(kKeyChannelCount, &numChannels));
+        CHECK(meta->findInt32(kKeySampleRate, &sampleRate));
 
-        setG711Format(numChannels);
+        setG711Format(numChannels, sampleRate);
     } else if (!strcasecmp(MEDIA_MIMETYPE_AUDIO_RAW, mMIME)) {
         CHECK(!mIsEncoder);
 
@@ -1715,11 +1716,22 @@ status_t OMXCodec::allocateOutputBuffersFromNativeWindow() {
         return err;
     }
 
-    err = native_window_set_buffers_geometry(
-            mNativeWindow.get(),
-            def.format.video.nFrameWidth,
-            def.format.video.nFrameHeight,
-            def.format.video.eColorFormat);
+    if(def.format.video.eColorFormat == OMX_COLOR_FormatYUV420Planar)
+    {
+        err = native_window_set_buffers_geometry(
+                mNativeWindow.get(),
+                def.format.video.nFrameWidth,
+                def.format.video.nFrameHeight,
+                HAL_PIXEL_FORMAT_YV12);
+    }
+    else
+    {
+        err = native_window_set_buffers_geometry(
+                mNativeWindow.get(),
+                def.format.video.nFrameWidth,
+                def.format.video.nFrameHeight,
+                def.format.video.eColorFormat);
+    }
 
     if (err != 0) {
         ALOGE("native_window_set_buffers_geometry failed: %s (%d)",
@@ -2450,7 +2462,7 @@ void OMXCodec::onEvent(OMX_EVENTTYPE event, OMX_U32 data1, OMX_U32 data2) {
             break;
         }
 
-#if 0
+#if 1
         case OMX_EventBufferFlag:
         {
             CODEC_LOGV("EVENT_BUFFER_FLAG(%ld)", data1);
@@ -3268,9 +3280,17 @@ status_t OMXCodec::waitForBufferFilled_l() {
     }
     status_t err = mBufferFilled.waitRelative(mLock, kBufferFilledEventTimeOutNs);
     if (err != OK) {
-        CODEC_LOGE("Timed out waiting for output buffers: %d/%d",
-            countBuffersWeOwn(mPortBuffers[kPortIndexInput]),
-            countBuffersWeOwn(mPortBuffers[kPortIndexOutput]));
+        //CODEC_LOGE("Timed out waiting for output buffers: %d/%d",
+        //countBuffersWeOwn(mPortBuffers[kPortIndexInput]),
+        //countBuffersWeOwn(mPortBuffers[kPortIndexOutput]));
+        if(countBuffersWeOwn(mPortBuffers[kPortIndexOutput]) > 0) {
+    		return OK;
+    	}
+    	else {
+			CODEC_LOGE("Timed out waiting for output buffers: %d/%d",
+		    countBuffersWeOwn(mPortBuffers[kPortIndexInput]),
+			countBuffersWeOwn(mPortBuffers[kPortIndexOutput]));
+    	}
     }
     return err;
 }
@@ -3491,9 +3511,10 @@ status_t OMXCodec::setAACFormat(
     return OK;
 }
 
-void OMXCodec::setG711Format(int32_t numChannels) {
+void OMXCodec::setG711Format(int32_t numChannels, int32_t sampleRate) {
     CHECK(!mIsEncoder);
-    setRawAudioFormat(kPortIndexInput, 8000, numChannels);
+    //setRawAudioFormat(kPortIndexInput, 8000, numChannels);
+    setRawAudioFormat(kPortIndexInput, sampleRate, numChannels);
 }
 
 void OMXCodec::setImageOutputFormat(

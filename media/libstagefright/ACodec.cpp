@@ -37,9 +37,16 @@
 
 #include <OMX_Component.h>
 
+#include <ui/GraphicBufferMapper.h>
+
 #include "include/avc_utils.h"
 
 namespace android {
+
+static int ALIGN(int x, int y) {
+    // y must be a power of 2.
+    return (x + y - 1) & ~(y - 1);
+}
 
 template<class T>
 static void InitOMXParams(T *params) {
@@ -445,6 +452,31 @@ void ACodec::signalRequestIDRFrame() {
     (new AMessage(kWhatRequestIDRFrame, id()))->post();
 }
 
+status_t ACodec::setEncoderBitrate(int32_t bitrate) {
+    OMX_VIDEO_CONTROLRATETYPE bitrateMode = OMX_Video_ControlRateVariable;
+    OMX_VIDEO_PARAM_BITRATETYPE bitrateType;
+    InitOMXParams(&bitrateType);
+    bitrateType.nPortIndex = kPortIndexOutput;
+
+    if(mOMX == NULL)
+        return NO_INIT;
+
+    status_t err = mOMX->getParameter(
+            mNode, OMX_IndexParamVideoBitrate,
+            &bitrateType, sizeof(bitrateType));
+
+    if (err != OK) {
+        return err;
+    }
+
+    bitrateType.eControlRate = bitrateMode;
+    bitrateType.nTargetBitrate = bitrate;
+
+    return mOMX->setParameter(
+            mNode, OMX_IndexParamVideoBitrate,
+            &bitrateType, sizeof(bitrateType));
+}
+
 status_t ACodec::allocateBuffersOnPort(OMX_U32 portIndex) {
     CHECK(portIndex == kPortIndexInput || portIndex == kPortIndexOutput);
 
@@ -543,11 +575,23 @@ status_t ACodec::allocateOutputBuffersFromNativeWindow() {
         return err;
     }
 
-    err = native_window_set_buffers_geometry(
-            mNativeWindow.get(),
-            def.format.video.nFrameWidth,
-            def.format.video.nFrameHeight,
-            def.format.video.eColorFormat);
+    if(def.format.video.eColorFormat == OMX_COLOR_FormatYUV420Planar)
+    {        
+        err = native_window_set_buffers_geometry(
+            mNativeWindow.get(),                
+            def.format.video.nFrameWidth,                
+            def.format.video.nFrameHeight,                
+            HAL_PIXEL_FORMAT_YV12); //need format conversion
+            ALOGD("manually change eColorFormat to  HAL_PIXEL_FORMAT_YV12!!!!");
+    }    
+    else    
+    {        
+        err = native_window_set_buffers_geometry(                
+            mNativeWindow.get(),                
+            def.format.video.nFrameWidth,                
+            def.format.video.nFrameHeight,                
+            def.format.video.eColorFormat);    
+    }
 
     if (err != 0) {
         ALOGE("native_window_set_buffers_geometry failed: %s (%d)",
@@ -998,11 +1042,12 @@ status_t ACodec::configureCodec(
         // These are PCM-like formats with a fixed sample rate but
         // a variable number of channels.
 
-        int32_t numChannels;
-        if (!msg->findInt32("channel-count", &numChannels)) {
+        int32_t numChannels, sampleRate;
+        if (!msg->findInt32("channel-count", &numChannels)
+                || !msg->findInt32("sample-rate", &sampleRate)) {
             err = INVALID_OPERATION;
         } else {
-            err = setupG711Codec(encoder, numChannels);
+            err = setupG711Codec(encoder, numChannels, sampleRate);
         }
     } else if (!strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_FLAC)) {
         int32_t numChannels, sampleRate, compressionLevel = -1;
@@ -1309,11 +1354,12 @@ status_t ACodec::setupAMRCodec(bool encoder, bool isWAMR, int32_t bitrate) {
             1 /* numChannels */);
 }
 
-status_t ACodec::setupG711Codec(bool encoder, int32_t numChannels) {
+status_t ACodec::setupG711Codec(bool encoder, int32_t numChannels, int32_t sampleRate) {
     CHECK(!encoder);  // XXX TODO
 
     return setupRawAudioFormat(
-            kPortIndexInput, 8000 /* sampleRate */, numChannels);
+            //kPortIndexInput, 8000 /* sampleRate */, numChannels);
+            kPortIndexInput,  sampleRate , numChannels);
 }
 
 status_t ACodec::setupFlacCodec(
@@ -3147,7 +3193,44 @@ void ACodec::BaseState::onOutputBufferDrained(const sp<AMessage> &msg) {
             mCodec->signalError(OMX_ErrorUndefined, err);
             info->mStatus = BufferInfo::OWNED_BY_US;
         }
-    } else {
+    } else if (mCodec->mNativeWindowSoft != NULL
+                && msg->findInt32("render", &render) && render != 0){
+        ANativeWindowBuffer *buf;
+        int err;
+        if ((err = mCodec->mNativeWindowSoft->dequeueBuffer_DEPRECATED(mCodec->mNativeWindowSoft.get(), &buf)) != 0) {
+            ALOGW("Surface::dequeueBuffer returned error %d", err);
+            return;
+        }
+
+        CHECK_EQ(0, mCodec->mNativeWindowSoft->lockBuffer_DEPRECATED(mCodec->mNativeWindowSoft.get(), buf));
+
+        GraphicBufferMapper &mapper = GraphicBufferMapper::get();
+
+        Rect bounds(mCodec->mVideoWidth, mCodec->mVideoHeight);
+
+        void *dst;
+        CHECK_EQ(0, mapper.lock(
+                    buf->handle, GRALLOC_USAGE_SW_WRITE_OFTEN, bounds, &dst));
+
+        //ALOGV("mColorFormat: %d", mColorFormat);
+        size_t dst_y_size = buf->stride * buf->height;
+        size_t dst_c_stride = ALIGN(buf->stride / 2, 16);
+        size_t dst_c_size = dst_c_stride * buf->height / 2;
+
+        memcpy(dst, info->mData->data(), dst_y_size + dst_c_size*2);
+        ALOGV("soft render buffer...%dX%d",mCodec->mVideoWidth,mCodec->mVideoHeight);
+
+        CHECK_EQ(0, mapper.unlock(buf->handle));
+
+        if ((err = mCodec->mNativeWindowSoft->queueBuffer_DEPRECATED(mCodec->mNativeWindowSoft.get(), buf)) != 0) {
+            ALOGW("Surface::queueBuffer returned error %d", err);
+        }
+        buf = NULL;
+
+        info->mStatus = BufferInfo::OWNED_BY_US;
+        
+    }
+    else {
         info->mStatus = BufferInfo::OWNED_BY_US;
     }
 
@@ -3511,6 +3594,42 @@ bool ACodec::LoadedState::onConfigureComponent(
         native_window_set_scaling_mode(
                 mCodec->mNativeWindow.get(),
                 NATIVE_WINDOW_SCALING_MODE_SCALE_TO_WINDOW);
+    }else if (msg->findObject("native-window", &obj)
+			&& mCodec->mNativeWindow == NULL) {
+		sp<NativeWindowWrapper> nativeWindow(
+				static_cast<NativeWindowWrapper *>(obj.get()));
+		CHECK(nativeWindow != NULL);
+
+		mCodec->mNativeWindowSoft = nativeWindow->getNativeWindow();
+		ALOGV("setup software native window");
+
+		if (!strncasecmp(mime.c_str(), "video/", 6)) {
+			int32_t width, height;
+			CHECK(msg->findInt32("width", &width));
+			CHECK(msg->findInt32("height", &height));
+
+			height = ((height + 7)>>3)<<3;
+			mCodec->mVideoWidth = width;
+			mCodec->mVideoHeight = height;
+
+		    CHECK_EQ(0,
+		            native_window_set_usage(
+		            mCodec->mNativeWindowSoft.get(),
+		            GRALLOC_USAGE_SW_READ_NEVER | GRALLOC_USAGE_SW_WRITE_OFTEN
+		            | GRALLOC_USAGE_HW_TEXTURE | GRALLOC_USAGE_EXTERNAL_DISP));
+
+		    CHECK_EQ(0,
+		            native_window_set_scaling_mode(
+		            mCodec->mNativeWindowSoft.get(),
+		            NATIVE_WINDOW_SCALING_MODE_SCALE_TO_WINDOW));
+
+		    // Width must be multiple of 32???
+		    CHECK_EQ(0, native_window_set_buffers_geometry(
+		    			mCodec->mNativeWindowSoft.get(),
+		                width,
+		                height,
+		                HAL_PIXEL_FORMAT_YV12));
+		}
     }
     CHECK_EQ((status_t)OK, mCodec->initNativeWindow());
 

@@ -50,6 +50,7 @@ struct Converter : public AHandler {
     void signalEOS();
 
     void requestIDRFrame();
+    status_t setEncoderBitrate(int32_t bitrate);
 
     void dropAFrame();
 

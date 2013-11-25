@@ -110,6 +110,9 @@ public:
             // set preview/capture parameters - key/value pairs
             status_t    setParameters(const String8& params);
 
+			// set file descriptor to camera HAL for writing file on android4.2 by fuqiang.
+			status_t    setFd(int fd);
+
             // get preview/capture parameters - key/value pairs
             String8     getParameters() const;
 

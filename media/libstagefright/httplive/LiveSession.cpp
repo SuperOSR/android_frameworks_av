@@ -100,7 +100,7 @@ void LiveSession::disconnect() {
     (new AMessage(kWhatDisconnect, id()))->post();
 }
 
-void LiveSession::seekTo(int64_t timeUs) {
+int64_t LiveSession::seekTo(int64_t timeUs) {
     Mutex::Autolock autoLock(mLock);
     mSeekDone = false;
 
@@ -111,6 +111,8 @@ void LiveSession::seekTo(int64_t timeUs) {
     while (!mSeekDone) {
         mCondition.wait(mLock);
     }
+
+    return 0;
 }
 
 void LiveSession::onMessageReceived(const sp<AMessage> &msg) {

@@ -48,7 +48,7 @@ struct LiveSession : public AHandler {
     void disconnect();
 
     // Blocks until seek is complete.
-    void seekTo(int64_t timeUs);
+    int64_t seekTo(int64_t timeUs);
 
     status_t getDuration(int64_t *durationUs) const;
 
@@ -69,7 +69,7 @@ protected:
 private:
     enum {
         kMaxNumQueuedFragments = 3,
-        kMaxNumRetries         = 5,
+        kMaxNumRetries         = 10,
     };
 
     enum {
@@ -117,7 +117,25 @@ private:
     bool mSeekDone;
     bool mDisconnectPending;
 
+    bool mTimeout;
+    AString *mCurUri;
+
     int32_t mMonitorQueueGeneration;
+
+    int64_t								mSeekTargetStartUs;
+
+	bool								mHasSeekMsg;
+	bool								mLastDownloadTobeContinue;
+	int32_t								mLastDownloadOffset;
+	int32_t								mLastSubSeqNumber;
+
+	int32_t								mLastSeqNumberBase;
+
+
+	bool								mIsPlaylistRedirected;
+	char*								mPlaylistRedirectURL;
+    bool                                mDataSourceConnected;
+    sp<ABuffer>                         mBufferForFetchFile;
 
     enum RefreshState {
         INITIAL_MINIMUM_RELOAD_DELAY,
@@ -138,6 +156,8 @@ private:
     status_t fetchFile(
             const char *url, sp<ABuffer> *out,
             int64_t range_offset = 0, int64_t range_length = -1);
+    
+    int32_t	 fetchTsData(const char* url, bool continueLast);
 
     sp<M3UParser> fetchPlaylist(const char *url, bool *unchanged);
     size_t getBandwidthIndex();

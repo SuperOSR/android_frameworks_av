@@ -318,7 +318,7 @@ status_t OMXNodeInstance::enableGraphicBuffers(
     err = OMX_SetParameter(mHandle, index, &params);
 
     if (err != OMX_ErrorNone) {
-        ALOGE("OMX_EnableAndroidNativeBuffers failed with error %d (0x%08x)",
+        ALOGW("OMX_EnableAndroidNativeBuffers failed with error %d (0x%08x)",
                 err, err);
 
         return UNKNOWN_ERROR;

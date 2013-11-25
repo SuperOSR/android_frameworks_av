@@ -15,6 +15,11 @@ LOCAL_SRC_FILES:= \
         source/TSPacketizer.cpp         \
         source/WifiDisplaySource.cpp    \
         VideoFormats.cpp                \
+        wfdsink/XLinearRegression.cpp   \
+        wfdsink/RTPSource.cpp           \
+        wfdsink/RTPJitterBuffer.cpp     \
+        wfdsink/WfdSink.cpp             \
+        wfdsink/MiracastSink.cpp        \
 
 LOCAL_C_INCLUDES:= \
         $(TOP)/frameworks/av/media/libstagefright \
@@ -31,6 +36,22 @@ LOCAL_SHARED_LIBRARIES:= \
         libstagefright_foundation       \
         libui                           \
         libutils                        \
+
+ifeq ($(BOARD_WLAN_DEVICE), bcmdhd)
+LOCAL_CFLAGS += -DBOARD_BRCM_WLAN
+endif
+
+ifeq ($(SW_BOARD_WFD_DENSITY), sw1080p)
+LOCAL_CFLAGS += -DUSE_1080P
+endif
+
+ifeq ($(SW_BOARD_WFD_DENSITY), sw720p)
+LOCAL_CFLAGS += -DUSE_720P
+endif
+
+ifeq ($(SW_BOARD_WFD_DENSITY), sw480p)
+LOCAL_CFLAGS += -DUSE_480P
+endif
 
 LOCAL_MODULE:= libstagefright_wfd
 

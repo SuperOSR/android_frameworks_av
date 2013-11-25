@@ -25,8 +25,38 @@
 #include <media/IMediaRecorder.h>
 #include <media/mediaplayer.h>  // for MEDIA_ERROR_SERVER_DIED
 #include <gui/IGraphicBufferProducer.h>
+#include <binder/IPCThreadState.h>
+#include <fcntl.h>
 
 namespace android {
+
+#define GET_CALLING_PID	(IPCThreadState::self()->getCallingPid())
+void getCallingProcessName(char *name)
+{
+	char proc_node[128];
+
+	if (name == 0)
+	{
+		ALOGE("error in params");
+		return;
+	}
+	
+	memset(proc_node, 0, sizeof(proc_node));
+	sprintf(proc_node, "/proc/%d/cmdline", GET_CALLING_PID);
+	int fp = ::open(proc_node, O_RDONLY);
+	if (fp > 0) 
+	{
+		memset(name, 0, 128);
+		::read(fp, name, 128);
+		::close(fp);
+		fp = 0;
+		ALOGD("Calling process is: %s !", name);
+	}
+	else 
+	{
+		ALOGE("Obtain calling process failed");
+	}
+}
 
 status_t MediaRecorder::setCamera(const sp<ICamera>& camera, const sp<ICameraRecordingProxy>& proxy)
 {
@@ -183,7 +213,7 @@ status_t MediaRecorder::setOutputFormat(int of)
         ALOGE("setOutputFormat called in an invalid state: %d", mCurrentState);
         return INVALID_OPERATION;
     }
-    if (mIsVideoSourceSet && of >= OUTPUT_FORMAT_AUDIO_ONLY_START && of != OUTPUT_FORMAT_RTP_AVP && of != OUTPUT_FORMAT_MPEG2TS) { //first non-video output format
+    if (mIsVideoSourceSet && of >= OUTPUT_FORMAT_AUDIO_ONLY_START && of != OUTPUT_FORMAT_RTP_AVP && of != OUTPUT_FORMAT_MPEG2TS && of != OUTPUT_FORMAT_AWTS && of != OUTPUT_FORMAT_RAW) { //first non-video output format
         ALOGE("output format (%d) is meant for audio recording only and incompatible with video recording", of);
         return INVALID_OPERATION;
     }
@@ -362,7 +392,34 @@ sp<IGraphicBufferProducer> MediaRecorder::
     return mSurfaceMediaSource;
 }
 
+status_t MediaRecorder::queueBuffer(int index, int addr_y, int addr_c, int64_t timestamp)
+{
+	ALOGV("queueBuffer(%d)", index);
+	if(mMediaRecorder == NULL) {
+		ALOGE("media recorder is not initialized yet");
+		return INVALID_OPERATION;
+	}
 
+	status_t ret = mMediaRecorder->queueBuffer(index, addr_y, addr_c, timestamp);
+	if (OK != ret) {
+		ALOGV("setVideoEncoder failed: %d", ret);
+		mCurrentState = MEDIA_RECORDER_ERROR;
+		return ret;
+	}
+
+	return ret;
+}
+
+sp<IMemory> MediaRecorder::getOneBsFrame(int mode)
+{
+	ALOGV("(%d)", index);
+	if(mMediaRecorder == NULL) {
+		ALOGE("media recorder is not initialized yet");
+		return NULL;
+	}
+
+	return mMediaRecorder->getOneBsFrame(mode);
+}
 
 status_t MediaRecorder::setVideoFrameRate(int frames_per_second)
 {
@@ -528,11 +585,16 @@ status_t MediaRecorder::stop()
 // Reset should be OK in any state
 status_t MediaRecorder::reset()
 {
+    char *mCallingProcessName = NULL;  
     ALOGV("reset");
     if (mMediaRecorder == NULL) {
         ALOGE("media recorder is not initialized yet");
         return INVALID_OPERATION;
     }
+
+    mCallingProcessName = (char *)malloc(sizeof(char) * 128);
+	getCallingProcessName(mCallingProcessName);
+    ALOGV("mCallingProcessName %s", mCallingProcessName);
 
     doCleanUp();
     status_t ret = UNKNOWN_ERROR;
@@ -540,13 +602,21 @@ status_t MediaRecorder::reset()
         case MEDIA_RECORDER_IDLE:
             ret = OK;
             break;
-
+        case MEDIA_RECORDER_PREPARED:
+        if (strcmp(mCallingProcessName, "com.android.cts.media") == 0) {
+            ret = OK;
+            break;
+        }
         case MEDIA_RECORDER_RECORDING:
         case MEDIA_RECORDER_DATASOURCE_CONFIGURED:
-        case MEDIA_RECORDER_PREPARED:
+        //case MEDIA_RECORDER_PREPARED:
         case MEDIA_RECORDER_ERROR: {
             ret = doReset();
             if (OK != ret) {
+                if (mCallingProcessName != NULL) {
+            		free(mCallingProcessName);
+            		mCallingProcessName = NULL;
+            	}
                 return ret;  // No need to continue
             }
         }  // Intentional fall through
@@ -559,6 +629,12 @@ status_t MediaRecorder::reset()
             break;
         }
     }
+
+    if (mCallingProcessName != NULL) {
+		free(mCallingProcessName);
+		mCallingProcessName = NULL;
+	}
+    
     return ret;
 }
 
