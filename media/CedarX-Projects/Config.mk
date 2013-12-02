@@ -20,7 +20,6 @@ CEDARX_DEBUG_DEMUXER := N
 endif
 
 ############################################################################
-ifeq ($(PLATFORM_VERSION),4.4)
 AV_BASE_PATH := av
 TEMP_COMPILE_DISABLE := true
 CEDARX_ANDROID_VERSION := 9
@@ -29,7 +28,6 @@ CEDARX_RTSP_VERSION := 5
 CEDARX_USE_SFTDEMUX := Y
 CEDARX_TOP := $(TOP)/frameworks/av/media/CedarX-Projects/CedarX
 CEDARX_EXT_CFLAGS += -DCEDARX_ANDROID_VERSION=9
-endif
 
 CEDARX_PREBUILD_LIB_PATH := LIB_$(CEDARX_ANDROID_CODE)_$(CEDARX_CHIP_VERSION)
 
