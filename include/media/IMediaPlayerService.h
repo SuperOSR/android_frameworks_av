@@ -40,6 +40,7 @@ class IRemoteDisplay;
 class IRemoteDisplayClient;
 struct IStreamSource;
 
+#ifdef TARGET_BOARD_FIBER
 /* add by Gary. start {{----------------------------------- */
 /**
 *  screen name
@@ -48,6 +49,7 @@ struct IStreamSource;
 #define SLAVE_SCREEN         1
 /* add by Gary. end   -----------------------------------}} */
 
+#endif
 class IMediaPlayerService: public IInterface
 {
 public:
@@ -57,8 +59,12 @@ public:
     virtual sp<IMediaMetadataRetriever> createMetadataRetriever() = 0;
     virtual sp<IMediaPlayer> create(const sp<IMediaPlayerClient>& client, int audioSessionId = 0) = 0;
 
-    virtual sp<IMemory>         decode(const char* url, uint32_t *pSampleRate, int* pNumChannels, audio_format_t* pFormat) = 0;
-    virtual sp<IMemory>         decode(int fd, int64_t offset, int64_t length, uint32_t *pSampleRate, int* pNumChannels, audio_format_t* pFormat) = 0;
+    virtual status_t         decode(const char* url, uint32_t *pSampleRate, int* pNumChannels,
+                                    audio_format_t* pFormat,
+                                    const sp<IMemoryHeap>& heap, size_t *pSize) = 0;
+    virtual status_t         decode(int fd, int64_t offset, int64_t length, uint32_t *pSampleRate,
+                                    int* pNumChannels, audio_format_t* pFormat,
+                                    const sp<IMemoryHeap>& heap, size_t *pSize) = 0;
     virtual sp<IOMX>            getOMX() = 0;
     virtual sp<ICrypto>         makeCrypto() = 0;
     virtual sp<IDrm>            makeDrm() = 0;
@@ -97,6 +103,7 @@ public:
 
     virtual void addBatteryData(uint32_t params) = 0;
     virtual status_t pullBatteryData(Parcel* reply) = 0;
+#ifdef TARGET_BOARD_FIBER
     /* add by Gary. start {{----------------------------------- */
     virtual status_t        setScreen(int screen) = 0;
     virtual status_t        getScreen(int *screen) = 0;
@@ -130,6 +137,8 @@ public:
     /* add two general interfaces for expansibility */
     virtual status_t        generalGlobalInterface(int cmd, int int1, int int2, int int3, void *p) = 0;
     /* add by Gary. end   -----------------------------------}} */
+#endif
+
     virtual status_t updateProxyConfig(
             const char *host, int32_t port, const char *exclusionList) = 0;
 };

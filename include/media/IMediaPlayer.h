@@ -20,7 +20,9 @@
 #include <utils/RefBase.h>
 #include <binder/IInterface.h>
 #include <binder/Parcel.h>
+#ifdef TARGET_BOARD_FIBER
 #include "mediaplayerinfo.h"
+#endif
 #include <utils/KeyedVector.h>
 #include <system/audio.h>
 
@@ -97,6 +99,7 @@ public:
     virtual status_t        getMetadata(bool update_only,
                                         bool apply_filter,
                                         Parcel *metadata) = 0;
+#ifdef TARGET_BOARD_FIBER
     virtual status_t        setDataSource(const sp<IStreamSource>& source, int type) = 0;
     /* add by Gary. start {{----------------------------------- */
     /* 2011-9-15 10:25:10 */
@@ -154,6 +157,7 @@ public:
     /* add two general interfaces for expansibility */
     virtual status_t        generalInterface(int cmd, int int1, int int2, int int3, void *p) = 0;
     /* add by Gary. end   -----------------------------------}} */
+#endif
 };
 
 // ----------------------------------------------------------------------------

@@ -94,6 +94,7 @@ status_t NuPlayer::StreamingSource::feedMoreTSData() {
                 type = mask;
             }
 
+#ifdef TARGET_BOARD_FIBER
             if (type & ATSParser::DISCONTINUITY_SEEK) {
         		uint64_t resumeAtPTS;
         		if (extra != NULL
@@ -108,6 +109,7 @@ status_t NuPlayer::StreamingSource::feedMoreTSData() {
         		}
         	}
 
+#endif
             mTSParser->signalDiscontinuity(
                     (ATSParser::DiscontinuityType)type, extra);
         } else if (n < 0) {

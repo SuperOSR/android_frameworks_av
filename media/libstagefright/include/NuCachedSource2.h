@@ -24,10 +24,12 @@
 
 namespace android {
 
+#ifdef TARGET_BOARD_FIBER
 enum {
        kSetLowwaterThresholdBytes = 0,
        kSetHighwaterThresholdBytes ,
 };
+#endif
 
 struct ALooper;
 struct PageCache;
@@ -63,8 +65,11 @@ struct NuCachedSource2 : public DataSource {
     // is returned.
     status_t getEstimatedBandwidthKbps(int32_t *kbps);
     status_t setCacheStatCollectFreq(int32_t freqMs);
+#ifdef TARGET_BOARD_FIBER
     void forceDisconnect();
     status_t generalInterface(int32_t cmd, int32_t ext1, int32_t ext2);
+#endif
+
     static void RemoveCacheSpecificHeaders(
             KeyedVector<String8, String8> *headers,
             String8 *cacheConfig,
@@ -77,9 +82,15 @@ private:
     friend struct AHandlerReflector<NuCachedSource2>;
 
     enum {
+#ifdef TARGET_BOARD_FIBER
         kPageSize                       = 32768,   //old is 64k 65536  change to 32k
         kDefaultHighWaterThreshold      = 24 * 1024 * 1024,
         kDefaultLowWaterThreshold       = 22* 1024 * 1024,
+#else
+        kPageSize                       = 65536,
+        kDefaultHighWaterThreshold      = 20 * 1024 * 1024,
+        kDefaultLowWaterThreshold       = 4 * 1024 * 1024,
+#endif
 
         // Read data after a 15 sec timeout whether we're actively
         // fetching or not.
@@ -106,7 +117,9 @@ private:
     PageCache *mCache;
     off64_t mCacheOffset;
     status_t mFinalStatus;
+#ifdef TARGET_BOARD_FIBER
     bool mForceReconnect;
+#endif
     off64_t mLastAccessPos;
     sp<AMessage> mAsyncResult;
     bool mFetching;
@@ -121,7 +134,10 @@ private:
     int64_t mKeepAliveIntervalUs;
 
     bool mDisconnectAtHighwatermark;
+#ifdef TARGET_BOARD_FIBER
     bool mForceStop;
+#endif
+
     void onMessageReceived(const sp<AMessage> &msg);
     void onFetch();
     void onRead(const sp<AMessage> &msg);

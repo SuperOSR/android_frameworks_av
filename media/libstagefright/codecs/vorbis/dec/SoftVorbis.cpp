@@ -81,7 +81,11 @@ void SoftVorbis::initPorts() {
     def.eDir = OMX_DirInput;
     def.nBufferCountMin = kNumBuffers;
     def.nBufferCountActual = def.nBufferCountMin;
+#ifdef TARGET_BOARD_FIBER
     def.nBufferSize = 8192 * 4;
+#else
+    def.nBufferSize = 8192;
+#endif
     def.bEnabled = OMX_TRUE;
     def.bPopulated = OMX_FALSE;
     def.eDomain = OMX_PortDomainAudio;
@@ -424,6 +428,8 @@ void SoftVorbis::onReset() {
         delete mVi;
         mVi = NULL;
     }
+
+    mOutputPortSettingsChange = NONE;
 }
 
 void SoftVorbis::onPortEnableCompleted(OMX_U32 portIndex, bool enabled) {

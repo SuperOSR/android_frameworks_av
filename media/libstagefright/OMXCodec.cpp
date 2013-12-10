@@ -359,12 +359,7 @@ sp<MediaSource> OMXCodec::Create(
             observer->setCodec(codec);
 
             err = codec->configureCodec(meta);
-
             if (err == OK) {
-                if (!strcmp("OMX.Nvidia.mpeg2v.decode", componentName)) {
-                    codec->mFlags |= kOnlySubmitOneInputBufferAtOneTime;
-                }
-
                 return codec;
             }
 
@@ -538,11 +533,17 @@ status_t OMXCodec::configureCodec(const sp<MetaData> &meta) {
         // These are PCM-like formats with a fixed sample rate but
         // a variable number of channels.
 
-        int32_t numChannels, sampleRate;
-        CHECK(meta->findInt32(kKeyChannelCount, &numChannels));
+#ifdef TARGET_BOARD_FIBER
+        int32_t sampleRate;
         CHECK(meta->findInt32(kKeySampleRate, &sampleRate));
-
+#endif
+        int32_t numChannels;
+        CHECK(meta->findInt32(kKeyChannelCount, &numChannels));
+#ifdef TARGET_BOARD_FIBER
         setG711Format(numChannels, sampleRate);
+#else
+        setG711Format(numChannels);
+#endif
     } else if (!strcasecmp(MEDIA_MIMETYPE_AUDIO_RAW, mMIME)) {
         CHECK(!mIsEncoder);
 
@@ -1196,8 +1197,10 @@ status_t OMXCodec::setVideoOutputFormat(
         compressionFormat = OMX_VIDEO_CodingMPEG4;
     } else if (!strcasecmp(MEDIA_MIMETYPE_VIDEO_H263, mime)) {
         compressionFormat = OMX_VIDEO_CodingH263;
-    } else if (!strcasecmp(MEDIA_MIMETYPE_VIDEO_VPX, mime)) {
-        compressionFormat = OMX_VIDEO_CodingVPX;
+    } else if (!strcasecmp(MEDIA_MIMETYPE_VIDEO_VP8, mime)) {
+        compressionFormat = OMX_VIDEO_CodingVP8;
+    } else if (!strcasecmp(MEDIA_MIMETYPE_VIDEO_VP9, mime)) {
+        compressionFormat = OMX_VIDEO_CodingVP9;
     } else if (!strcasecmp(MEDIA_MIMETYPE_VIDEO_MPEG2, mime)) {
         compressionFormat = OMX_VIDEO_CodingMPEG2;
     } else {
@@ -1345,8 +1348,7 @@ OMXCodec::OMXCodec(
       mLeftOverBuffer(NULL),
       mPaused(false),
       mNativeWindow(
-              (!strncmp(componentName, "OMX.google.", 11)
-              || !strcmp(componentName, "OMX.Nvidia.mpeg2v.decode"))
+              (!strncmp(componentName, "OMX.google.", 11))
                         ? NULL : nativeWindow) {
     mPortStatus[kPortIndexInput] = ENABLED;
     mPortStatus[kPortIndexOutput] = ENABLED;
@@ -1389,8 +1391,10 @@ void OMXCodec::setComponentRole(
             "video_decoder.mpeg4", "video_encoder.mpeg4" },
         { MEDIA_MIMETYPE_VIDEO_H263,
             "video_decoder.h263", "video_encoder.h263" },
-        { MEDIA_MIMETYPE_VIDEO_VPX,
-            "video_decoder.vpx", "video_encoder.vpx" },
+        { MEDIA_MIMETYPE_VIDEO_VP8,
+            "video_decoder.vp8", "video_encoder.vp8" },
+        { MEDIA_MIMETYPE_VIDEO_VP9,
+            "video_decoder.vp9", "video_encoder.vp9" },
         { MEDIA_MIMETYPE_AUDIO_RAW,
             "audio_decoder.raw", "audio_encoder.raw" },
         { MEDIA_MIMETYPE_AUDIO_FLAC,
@@ -1716,6 +1720,7 @@ status_t OMXCodec::allocateOutputBuffersFromNativeWindow() {
         return err;
     }
 
+#ifdef TARGET_BOARD_FIBER
     if(def.format.video.eColorFormat == OMX_COLOR_FormatYUV420Planar)
     {
         err = native_window_set_buffers_geometry(
@@ -1725,13 +1730,12 @@ status_t OMXCodec::allocateOutputBuffersFromNativeWindow() {
                 HAL_PIXEL_FORMAT_YV12);
     }
     else
-    {
-        err = native_window_set_buffers_geometry(
-                mNativeWindow.get(),
-                def.format.video.nFrameWidth,
-                def.format.video.nFrameHeight,
-                def.format.video.eColorFormat);
-    }
+#endif
+    err = native_window_set_buffers_geometry(
+            mNativeWindow.get(),
+            def.format.video.nFrameWidth,
+            def.format.video.nFrameHeight,
+            def.format.video.eColorFormat);
 
     if (err != 0) {
         ALOGE("native_window_set_buffers_geometry failed: %s (%d)",
@@ -2462,7 +2466,7 @@ void OMXCodec::onEvent(OMX_EVENTTYPE event, OMX_U32 data1, OMX_U32 data2) {
             break;
         }
 
-#if 1
+#ifdef TARGET_BOARD_FIBER
         case OMX_EventBufferFlag:
         {
             CODEC_LOGV("EVENT_BUFFER_FLAG(%ld)", data1);
@@ -3280,17 +3284,18 @@ status_t OMXCodec::waitForBufferFilled_l() {
     }
     status_t err = mBufferFilled.waitRelative(mLock, kBufferFilledEventTimeOutNs);
     if (err != OK) {
+#ifdef TARGET_BOARD_FIBER
         //CODEC_LOGE("Timed out waiting for output buffers: %d/%d",
         //countBuffersWeOwn(mPortBuffers[kPortIndexInput]),
         //countBuffersWeOwn(mPortBuffers[kPortIndexOutput]));
         if(countBuffersWeOwn(mPortBuffers[kPortIndexOutput]) > 0) {
     		return OK;
     	}
-    	else {
-			CODEC_LOGE("Timed out waiting for output buffers: %d/%d",
-		    countBuffersWeOwn(mPortBuffers[kPortIndexInput]),
-			countBuffersWeOwn(mPortBuffers[kPortIndexOutput]));
-    	}
+    	else
+#endif
+        CODEC_LOGE("Timed out waiting for output buffers: %d/%d",
+            countBuffersWeOwn(mPortBuffers[kPortIndexInput]),
+            countBuffersWeOwn(mPortBuffers[kPortIndexOutput]));
     }
     return err;
 }
@@ -3511,10 +3516,16 @@ status_t OMXCodec::setAACFormat(
     return OK;
 }
 
+#ifdef TARGET_BOARD_FIBER
 void OMXCodec::setG711Format(int32_t numChannels, int32_t sampleRate) {
     CHECK(!mIsEncoder);
-    //setRawAudioFormat(kPortIndexInput, 8000, numChannels);
     setRawAudioFormat(kPortIndexInput, sampleRate, numChannels);
+}
+#endif
+
+void OMXCodec::setG711Format(int32_t numChannels) {
+    CHECK(!mIsEncoder);
+    setRawAudioFormat(kPortIndexInput, 8000, numChannels);
 }
 
 void OMXCodec::setImageOutputFormat(
@@ -4584,7 +4595,7 @@ status_t QueryCodec(
         CodecCapabilities *caps) {
     if (strncmp(componentName, "OMX.", 4)) {
         // Not an OpenMax component but a software codec.
-
+        caps->mFlags = 0;
         caps->mComponentName = componentName;
         return OK;
     }
@@ -4599,6 +4610,7 @@ status_t QueryCodec(
 
     OMXCodec::setComponentRole(omx, node, isEncoder, mime);
 
+    caps->mFlags = 0;
     caps->mComponentName = componentName;
 
     OMX_VIDEO_PARAM_PROFILELEVELTYPE param;
@@ -4634,6 +4646,16 @@ status_t QueryCodec(
             break;
         }
         caps->mColorFormats.push(portFormat.eColorFormat);
+    }
+
+    if (!isEncoder && !strncmp(mime, "video/", 6)) {
+        if (omx->storeMetaDataInBuffers(
+                    node, 1 /* port index */, OMX_TRUE) == OK ||
+            omx->prepareForAdaptivePlayback(
+                    node, 1 /* port index */, OMX_TRUE,
+                    1280 /* width */, 720 /* height */) == OK) {
+            caps->mFlags |= CodecCapabilities::kFlagSupportsAdaptivePlayback;
+        }
     }
 
     CHECK_EQ(omx->freeNode(node), (status_t)OK);

@@ -19,7 +19,9 @@
 #define HTTP_BASE_H_
 
 #include <media/stagefright/foundation/ABase.h>
+#ifdef TARGET_BOARD_FIBER
 #include <media/stagefright/foundation/AString.h>
+#endif
 #include <media/stagefright/DataSource.h>
 #include <media/stagefright/MediaErrors.h>
 #include <utils/threads.h>
@@ -29,8 +31,10 @@ namespace android {
 struct HTTPBase : public DataSource {
     enum Flags {
         // Don't log any URLs.
-        kFlagIncognito = 1,
-        kFlagUAIPAD  = 256,
+        kFlagIncognito = 1
+#ifdef TARGET_BOARD_FIBER
+        , kFlagUAIPAD  = 256
+#endif
     };
 
     HTTPBase();
@@ -61,6 +65,7 @@ struct HTTPBase : public DataSource {
     static void RegisterSocketUserTag(int sockfd, uid_t uid, uint32_t kTag);
     static void UnRegisterSocketUserTag(int sockfd);
 
+#ifdef TARGET_BOARD_FIBER
     //* add by chenxiaochuan for QQ live stream.
     virtual AString getRedirectUri(bool getAll = false)
     {
@@ -90,6 +95,9 @@ struct HTTPBase : public DataSource {
     virtual void forceDisconnect(){};
     virtual void setTimeoutLastUs(int64_t timeoutUs) {};
     //* end.
+#endif
+    static void RegisterSocketUserMark(int sockfd, uid_t uid);
+    static void UnRegisterSocketUserMark(int sockfd);
 
 protected:
     void addBandwidthMeasurement(size_t numBytes, int64_t delayUs);

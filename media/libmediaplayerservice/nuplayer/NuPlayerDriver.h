@@ -45,7 +45,9 @@ struct NuPlayerDriver : public MediaPlayerInterface {
     virtual status_t stop();
     virtual status_t pause();
     virtual bool isPlaying();
+#ifdef TARGET_BOARD_FIBER
     virtual int getMeidaPlayerState();
+#endif
     virtual status_t seekTo(int msec);
     virtual status_t getCurrentPosition(int *msec);
     virtual status_t getDuration(int *msec);
@@ -70,7 +72,7 @@ struct NuPlayerDriver : public MediaPlayerInterface {
     void notifyPosition(int64_t positionUs);
     void notifySeekComplete();
     void notifyFrameStats(int64_t numFramesTotal, int64_t numFramesDropped);
-    void notifyListener(int msg, int ext1 = 0, int ext2 = 0);
+    void notifyListener(int msg, int ext1 = 0, int ext2 = 0, const Parcel *in = NULL);
     void notifyFlagsChanged(uint32_t flags);
 
 protected:

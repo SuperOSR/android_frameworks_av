@@ -37,12 +37,17 @@ ChromiumHTTPDataSource::ChromiumHTTPDataSource(uint32_t flags)
       mIOResult(OK),
       mContentSize(-1),
       mDecryptHandle(NULL),
-      mDrmManagerClient(NULL),
-      mReadTimeoutUs(kDefaultReadTimeOutUs),
-      mForceDisconnect(false){
+      mDrmManagerClient(NULL)
+#ifdef TARGET_BOARD_FIBER
+      , mReadTimeoutUs(kDefaultReadTimeOutUs)
+      , mForceDisconnect(false)
+#endif
+      {
     mDelegate->setOwner(this);
+#ifdef TARGET_BOARD_FIBER
     mDelegate->setUA(!!(mFlags & kFlagUAIPAD));
     mIsRedirected = false;
+#endif
 }
 
 ChromiumHTTPDataSource::~ChromiumHTTPDataSource() {
@@ -77,6 +82,7 @@ status_t ChromiumHTTPDataSource::connect(
     return connect_l(uri, headers, offset);
 }
 
+#ifdef TARGET_BOARD_FIBER
 //* add by chenxiaochuan for QQ live stream.
 
 AString ChromiumHTTPDataSource::getRedirectUri(bool getAll)
@@ -170,7 +176,7 @@ void ChromiumHTTPDataSource::setRedirectSpec(const char* path)
 	mRedirectURI = path;
 }
 //* end.
-
+#endif
 
 status_t ChromiumHTTPDataSource::connect_l(
         const char *uri,
@@ -186,9 +192,6 @@ status_t ChromiumHTTPDataSource::connect_l(
 #endif
 
     mURI = uri;
-    mIsRedirected = false;
-	//LOG_PRI(ANDROID_LOG_VERBOSE, LOG_TAG, "uri = %s.", uri);
-
     mContentType = String8("application/octet-stream");
 
     if (headers != NULL) {
@@ -205,10 +208,12 @@ status_t ChromiumHTTPDataSource::connect_l(
 
     while (mState == CONNECTING || mState == DISCONNECTING) {
         mCondition.wait(mLock);
+#ifdef TARGET_BOARD_FIBER
         if(mForceDisconnect) {
         	LOG_PRI(ANDROID_LOG_INFO, LOG_TAG, "disconnected, return");
         	return ERROR_IO;
         }
+#endif
     }
 
     return mState == CONNECTED ? OK : mIOResult;
@@ -304,6 +309,7 @@ ssize_t ChromiumHTTPDataSource::readAt(off64_t offset, void *data, size_t size) 
 
     mDelegate->initiateRead(data, size);
 
+#ifdef TARGET_BOARD_FIBER
     int32_t bandwidth_bps;
 	estimateBandwidth(&bandwidth_bps);
 	int64_t readTimeoutUs = 0;
@@ -312,9 +318,10 @@ ssize_t ChromiumHTTPDataSource::readAt(off64_t offset, void *data, size_t size) 
 	}
 
 	readTimeoutUs += mReadTimeoutUs;
+#endif
 
     while (mState == READING) {
-        //mCondition.wait(mLock);
+#ifdef TARGET_BOARD_FIBER
         status_t err = mCondition.waitRelative(mLock, readTimeoutUs *1000ll);
 
         if(mForceDisconnect) {
@@ -328,6 +335,9 @@ ssize_t ChromiumHTTPDataSource::readAt(off64_t offset, void *data, size_t size) 
 
 			return err;
 		}
+#else
+        mCondition.wait(mLock);
+#endif
     }
 
     if (mIOResult < OK) {
@@ -354,10 +364,12 @@ void ChromiumHTTPDataSource::onReadCompleted(ssize_t size) {
     mIOResult = size;
 
     if (mState == READING) {
+#ifdef TARGET_BOARD_FIBER
         if(mForceDisconnect) {
             LOG_PRI(ANDROID_LOG_INFO, LOG_TAG, "onReadCompleted, but we have disconnected");
             return ;
         }
+#endif
         mState = CONNECTED;
         mCondition.broadcast();
     }
@@ -472,6 +484,7 @@ status_t ChromiumHTTPDataSource::reconnectAtOffset(off64_t offset) {
     return err;
 }
 
+#ifdef TARGET_BOARD_FIBER
 void ChromiumHTTPDataSource::forceDisconnect()
 {
 	if(mState == CONNECTING || mState == READING) {
@@ -487,6 +500,7 @@ void ChromiumHTTPDataSource::setTimeoutLastUs(int64_t timeoutUs)
 	if(timeoutUs >= 0) {
 		mReadTimeoutUs = timeoutUs;
 	}
+#endif
 
 // static
 status_t ChromiumHTTPDataSource::UpdateProxyConfig(

@@ -25,10 +25,10 @@ class TrackBase : public ExtendedAudioBufferProvider, public RefBase {
 public:
     enum track_state {
         IDLE,
-        TERMINATED,
         FLUSHED,
         STOPPED,
-        // next 2 states are currently used for fast tracks only
+        // next 2 states are currently used for fast tracks
+        // and offloaded tracks only
         STOPPING_1,     // waiting for first underrun
         STOPPING_2,     // waiting for presentation complete
         RESUMING,
@@ -45,6 +45,7 @@ public:
                                 size_t frameCount,
                                 const sp<IMemory>& sharedBuffer,
                                 int sessionId,
+                                int uid,
                                 bool isOut);
     virtual             ~TrackBase();
 
@@ -54,6 +55,7 @@ public:
             sp<IMemory> getCblk() const { return mCblkMemory; }
             audio_track_cblk_t* cblk() const { return mCblk; }
             int         sessionId() const { return mSessionId; }
+            int         uid() const { return mUid; }
     virtual status_t    setSyncEvent(const sp<SyncEvent>& event);
 
 protected:
@@ -74,7 +76,7 @@ protected:
 
     audio_channel_mask_t channelMask() const { return mChannelMask; }
 
-    uint32_t sampleRate() const; // FIXME inline after cblk sr moved
+    virtual uint32_t sampleRate() const { return mSampleRate; }
 
     // Return a pointer to the start of a contiguous slice of the track buffer.
     // Parameter 'offset' is the requested start position, expressed in
@@ -89,7 +91,7 @@ protected:
         return (mState == STOPPED || mState == FLUSHED);
     }
 
-    // for fast tracks only
+    // for fast tracks and offloaded tracks only
     bool isStopping() const {
         return mState == STOPPING_1 || mState == STOPPING_2;
     }
@@ -101,11 +103,12 @@ protected:
     }
 
     bool isTerminated() const {
-        return mState == TERMINATED;
+        return mTerminated;
     }
 
-    bool step();    // mStepCount is an implicit input
-    void reset();
+    void terminate() {
+        mTerminated = true;
+    }
 
     bool isOut() const { return mIsOut; }
                                     // true for Track and TimedTrack, false for RecordTrack,
@@ -117,29 +120,26 @@ protected:
     audio_track_cblk_t* mCblk;
     void*               mBuffer;    // start of track buffer, typically in shared memory
                                     // except for OutputTrack when it is in local memory
-    void*               mBufferEnd; // &mBuffer[mFrameCount * frameSize], where frameSize
-                                    //   is based on mChannelCount and 16-bit samples
-    uint32_t            mStepCount; // saves AudioBufferProvider::Buffer::frameCount as of
-                                    // time of releaseBuffer() for later use by step()
     // we don't really need a lock for these
     track_state         mState;
     const uint32_t      mSampleRate;    // initial sample rate only; for tracks which
                         // support dynamic rates, the current value is in control block
     const audio_format_t mFormat;
     const audio_channel_mask_t mChannelMask;
-    const uint8_t       mChannelCount;
+    const uint32_t      mChannelCount;
     const size_t        mFrameSize; // AudioFlinger's view of frame size in shared memory,
                                     // where for AudioTrack (but not AudioRecord),
                                     // 8-bit PCM samples are stored as 16-bit
     const size_t        mFrameCount;// size of track buffer given at createTrack() or
                                     // openRecord(), and then adjusted as needed
 
-    bool                mStepServerFailed;
     const int           mSessionId;
+    int                 mUid;
     Vector < sp<SyncEvent> >mSyncEvents;
     const bool          mIsOut;
     ServerProxy*        mServerProxy;
     const int           mId;
     sp<NBAIO_Sink>      mTeeSink;
     sp<NBAIO_Source>    mTeeSource;
+    bool                mTerminated;
 };

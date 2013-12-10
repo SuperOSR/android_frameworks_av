@@ -48,6 +48,7 @@ enum {
     ADD_BATTERY_DATA,
     PULL_BATTERY_DATA,
     LISTEN_FOR_REMOTE_DISPLAY,
+#ifdef TARGET_BOARD_FIBER
     /* add by Gary. start {{----------------------------------- */
     SET_SCREEN,
     GET_SCREEN,
@@ -81,6 +82,7 @@ enum {
     /* add two general interfaces for expansibility */
     GENERAL_GLOBAL_INTERFACE,
     /* add by Gary. end   -----------------------------------}} */
+#endif
     UPDATE_PROXY_CONFIG,
 };
 
@@ -119,30 +121,48 @@ public:
         return interface_cast<IMediaRecorder>(reply.readStrongBinder());
     }
 
-    virtual sp<IMemory> decode(const char* url, uint32_t *pSampleRate, int* pNumChannels, audio_format_t* pFormat)
+    virtual status_t decode(const char* url, uint32_t *pSampleRate, int* pNumChannels,
+                               audio_format_t* pFormat,
+                               const sp<IMemoryHeap>& heap, size_t *pSize)
     {
         Parcel data, reply;
         data.writeInterfaceToken(IMediaPlayerService::getInterfaceDescriptor());
         data.writeCString(url);
-        remote()->transact(DECODE_URL, data, &reply);
-        *pSampleRate = uint32_t(reply.readInt32());
-        *pNumChannels = reply.readInt32();
-        *pFormat = (audio_format_t) reply.readInt32();
-        return interface_cast<IMemory>(reply.readStrongBinder());
+        data.writeStrongBinder(heap->asBinder());
+        status_t status = remote()->transact(DECODE_URL, data, &reply);
+        if (status == NO_ERROR) {
+            status = (status_t)reply.readInt32();
+            if (status == NO_ERROR) {
+                *pSampleRate = uint32_t(reply.readInt32());
+                *pNumChannels = reply.readInt32();
+                *pFormat = (audio_format_t)reply.readInt32();
+                *pSize = (size_t)reply.readInt32();
+            }
+        }
+        return status;
     }
 
-    virtual sp<IMemory> decode(int fd, int64_t offset, int64_t length, uint32_t *pSampleRate, int* pNumChannels, audio_format_t* pFormat)
+    virtual status_t decode(int fd, int64_t offset, int64_t length, uint32_t *pSampleRate,
+                               int* pNumChannels, audio_format_t* pFormat,
+                               const sp<IMemoryHeap>& heap, size_t *pSize)
     {
         Parcel data, reply;
         data.writeInterfaceToken(IMediaPlayerService::getInterfaceDescriptor());
         data.writeFileDescriptor(fd);
         data.writeInt64(offset);
         data.writeInt64(length);
-        remote()->transact(DECODE_FD, data, &reply);
-        *pSampleRate = uint32_t(reply.readInt32());
-        *pNumChannels = reply.readInt32();
-        *pFormat = (audio_format_t) reply.readInt32();
-        return interface_cast<IMemory>(reply.readStrongBinder());
+        data.writeStrongBinder(heap->asBinder());
+        status_t status = remote()->transact(DECODE_FD, data, &reply);
+        if (status == NO_ERROR) {
+            status = (status_t)reply.readInt32();
+            if (status == NO_ERROR) {
+                *pSampleRate = uint32_t(reply.readInt32());
+                *pNumChannels = reply.readInt32();
+                *pFormat = (audio_format_t)reply.readInt32();
+                *pSize = (size_t)reply.readInt32();
+            }
+        }
+        return status;
     }
 
     virtual sp<IOMX> getOMX() {
@@ -198,6 +218,7 @@ public:
         return interface_cast<IRemoteDisplay>(reply.readStrongBinder());
     }
 
+#ifdef TARGET_BOARD_FIBER
     /* add by Gary. start {{----------------------------------- */
     status_t setScreen(int screen)
     {
@@ -376,6 +397,7 @@ public:
         return ret;
     }
     /* add by Gary. end   -----------------------------------}} */ 
+#ifdef TARGET_BOARD_FIBER
 
     virtual status_t updateProxyConfig(
             const char *host, int32_t port, const char *exclusionList) {
@@ -417,14 +439,19 @@ status_t BnMediaPlayerService::onTransact(
         case DECODE_URL: {
             CHECK_INTERFACE(IMediaPlayerService, data, reply);
             const char* url = data.readCString();
+            sp<IMemoryHeap> heap = interface_cast<IMemoryHeap>(data.readStrongBinder());
             uint32_t sampleRate;
             int numChannels;
             audio_format_t format;
-            sp<IMemory> player = decode(url, &sampleRate, &numChannels, &format);
-            reply->writeInt32(sampleRate);
-            reply->writeInt32(numChannels);
-            reply->writeInt32((int32_t) format);
-            reply->writeStrongBinder(player->asBinder());
+            size_t size;
+            status_t status = decode(url, &sampleRate, &numChannels, &format, heap, &size);
+            reply->writeInt32(status);
+            if (status == NO_ERROR) {
+                reply->writeInt32(sampleRate);
+                reply->writeInt32(numChannels);
+                reply->writeInt32((int32_t)format);
+                reply->writeInt32((int32_t)size);
+            }
             return NO_ERROR;
         } break;
         case DECODE_FD: {
@@ -432,14 +459,20 @@ status_t BnMediaPlayerService::onTransact(
             int fd = dup(data.readFileDescriptor());
             int64_t offset = data.readInt64();
             int64_t length = data.readInt64();
+            sp<IMemoryHeap> heap = interface_cast<IMemoryHeap>(data.readStrongBinder());
             uint32_t sampleRate;
             int numChannels;
             audio_format_t format;
-            sp<IMemory> player = decode(fd, offset, length, &sampleRate, &numChannels, &format);
-            reply->writeInt32(sampleRate);
-            reply->writeInt32(numChannels);
-            reply->writeInt32((int32_t) format);
-            reply->writeStrongBinder(player->asBinder());
+            size_t size;
+            status_t status = decode(fd, offset, length, &sampleRate, &numChannels, &format,
+                                     heap, &size);
+            reply->writeInt32(status);
+            if (status == NO_ERROR) {
+                reply->writeInt32(sampleRate);
+                reply->writeInt32(numChannels);
+                reply->writeInt32((int32_t)format);
+                reply->writeInt32((int32_t)size);
+            }
             return NO_ERROR;
         } break;
         case CREATE_MEDIA_RECORDER: {
@@ -499,6 +532,7 @@ status_t BnMediaPlayerService::onTransact(
             reply->writeStrongBinder(display->asBinder());
             return NO_ERROR;
         } break;
+#ifdef TARGET_BOARD_FIBER
         /* add by Gary. start {{----------------------------------- */
         case SET_SCREEN: {
             CHECK_INTERFACE(IMediaPlayer, data, reply);
@@ -637,6 +671,7 @@ status_t BnMediaPlayerService::onTransact(
             return NO_ERROR;
         } break;
         /* add by Gary. end   -----------------------------------}} */
+#endif
         case UPDATE_PROXY_CONFIG:
         {
             CHECK_INTERFACE(IMediaPlayerService, data, reply);

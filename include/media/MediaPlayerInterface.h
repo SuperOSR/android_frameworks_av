@@ -29,14 +29,17 @@
 #include <media/AudioSystem.h>
 #include <media/Metadata.h>
 
+#ifdef TARGET_BOARD_FIBER
 #include "mediaplayerinfo.h"
 
+#endif
 // Fwd decl to make sure everyone agrees that the scope of struct sockaddr_in is
 // global, and not in android::
 struct sockaddr_in;
 
 namespace android {
 
+#ifdef TARGET_BOARD_FIBER
 /* add by Gary. start {{----------------------------------- */
 /**
 *  screen name
@@ -45,6 +48,7 @@ namespace android {
 #define SLAVE_SCREEN         1
 /* add by Gary. end   -----------------------------------}} */
 
+#endif
 class Parcel;
 class Surface;
 class IGraphicBufferProducer;
@@ -60,12 +64,14 @@ enum player_type {
     // The shared library with the test player is passed passed as an
     // argument to the 'test:' url in the setDataSource call.
     TEST_PLAYER = 5,
-
+#ifdef TARGET_BOARD_FIBER
     CEDARX_PLAYER = 8,
     CEDARA_PLAYER = 9,
     THUMBNAIL_PLAYER = 10,
+#endif
 };
 
+#ifdef TARGET_BOARD_FIBER
 enum player_states {
 	PLAYER_STATE_UNKOWN = 0,
 	PLAYER_STATE_PREPARED,
@@ -75,6 +81,7 @@ enum player_states {
 	PLAYER_STATE_SUSPEND,
 	PLAYER_STATE_RESUME,
 };
+#endif
 
 #define DEFAULT_AUDIOSINK_BUFFERCOUNT 4
 #define DEFAULT_AUDIOSINK_BUFFERSIZE 1200
@@ -97,9 +104,18 @@ public:
     // AudioSink: abstraction layer for audio output
     class AudioSink : public RefBase {
     public:
+        enum cb_event_t {
+            CB_EVENT_FILL_BUFFER,   // Request to write more data to buffer.
+            CB_EVENT_STREAM_END,    // Sent after all the buffers queued in AF and HW are played
+                                    // back (after stop is called)
+            CB_EVENT_TEAR_DOWN      // The AudioTrack was invalidated due to use case change:
+                                    // Need to re-evaluate offloading options
+        };
+
         // Callback returns the number of bytes actually written to the buffer.
         typedef size_t (*AudioCallback)(
-                AudioSink *audioSink, void *buffer, size_t size, void *cookie);
+                AudioSink *audioSink, void *buffer, size_t size, void *cookie,
+                        cb_event_t event);
 
         virtual             ~AudioSink() {}
         virtual bool        ready() const = 0; // audio output is open and ready
@@ -113,6 +129,7 @@ public:
         virtual status_t    getPosition(uint32_t *position) const = 0;
         virtual status_t    getFramesWritten(uint32_t *frameswritten) const = 0;
         virtual int         getSessionId() const = 0;
+        virtual audio_stream_type_t getAudioStreamType() const = 0;
 
         // If no callback is specified, use the "write" API below to submit
         // audio data.
@@ -122,9 +139,10 @@ public:
                 int bufferCount=DEFAULT_AUDIOSINK_BUFFERCOUNT,
                 AudioCallback cb = NULL,
                 void *cookie = NULL,
-                audio_output_flags_t flags = AUDIO_OUTPUT_FLAG_NONE) = 0;
+                audio_output_flags_t flags = AUDIO_OUTPUT_FLAG_NONE,
+                const audio_offload_info_t *offloadInfo = NULL) = 0;
 
-        virtual void        start() = 0;
+        virtual status_t    start() = 0;
         virtual ssize_t     write(const void* buffer, size_t size) = 0;
         virtual void        stop() = 0;
         virtual void        flush() = 0;
@@ -133,6 +151,9 @@ public:
 
         virtual status_t    setPlaybackRatePermille(int32_t rate) { return INVALID_OPERATION; }
         virtual bool        needsTrailingPadding() { return true; }
+
+        virtual status_t    setParameters(const String8& keyValuePairs) { return NO_ERROR; };
+        virtual String8     getParameters(const String8& keys) { return String8::empty(); };
     };
 
                         MediaPlayerBase() : mCookie(0), mNotify(0) {}
@@ -226,6 +247,7 @@ public:
         return INVALID_OPERATION;
     }
 
+#ifdef TARGET_BOARD_FIBER
     /* add by Gary. start {{----------------------------------- */
     virtual status_t    setScreen(int screen){
         return OK;
@@ -466,6 +488,7 @@ public:
     }
     /* add by Gary. end   -----------------------------------}} */
 
+#endif
 private:
     friend class MediaPlayerService;
 

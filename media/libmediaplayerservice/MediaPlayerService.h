@@ -20,15 +20,12 @@
 
 #include <arpa/inet.h>
 
-#include <utils/Log.h>
 #include <utils/threads.h>
-#include <utils/List.h>
 #include <utils/Errors.h>
 #include <utils/KeyedVector.h>
 #include <utils/String8.h>
 #include <utils/Vector.h>
 
-#include <media/IMediaPlayerService.h>
 #include <media/MediaPlayerInterface.h>
 #include <media/Metadata.h>
 #include <media/stagefright/foundation/ABase.h>
@@ -75,10 +72,10 @@ class MediaPlayerService : public BnMediaPlayerService
         class CallbackData;
 
      public:
-                                AudioOutput(int sessionId);
+                                AudioOutput(int sessionId, int uid);
         virtual                 ~AudioOutput();
 
-        virtual bool            ready() const { return mTrack != NULL; }
+        virtual bool            ready() const { return mTrack != 0; }
         virtual bool            realtime() const { return true; }
         virtual ssize_t         bufferSize() const;
         virtual ssize_t         frameCount() const;
@@ -94,15 +91,19 @@ class MediaPlayerService : public BnMediaPlayerService
                 uint32_t sampleRate, int channelCount, audio_channel_mask_t channelMask,
                 audio_format_t format, int bufferCount,
                 AudioCallback cb, void *cookie,
-                audio_output_flags_t flags = AUDIO_OUTPUT_FLAG_NONE);
+                audio_output_flags_t flags = AUDIO_OUTPUT_FLAG_NONE,
+                const audio_offload_info_t *offloadInfo = NULL);
 
-        virtual void            start();
+        virtual status_t        start();
         virtual ssize_t         write(const void* buffer, size_t size);
         virtual void            stop();
         virtual void            flush();
         virtual void            pause();
         virtual void            close();
-                void            setAudioStreamType(audio_stream_type_t streamType) { mStreamType = streamType; }
+                void            setAudioStreamType(audio_stream_type_t streamType) {
+                                                                        mStreamType = streamType; }
+        virtual audio_stream_type_t getAudioStreamType() const { return mStreamType; }
+
                 void            setVolume(float left, float right);
         virtual status_t        setPlaybackRatePermille(int32_t ratePermille);
                 status_t        setAuxEffectSendLevel(float level);
@@ -114,14 +115,17 @@ class MediaPlayerService : public BnMediaPlayerService
                 void            setNextOutput(const sp<AudioOutput>& nextOutput);
                 void            switchToNextOutput();
         virtual bool            needsTrailingPadding() { return mNextOutput == NULL; }
+        virtual status_t        setParameters(const String8& keyValuePairs);
+        virtual String8         getParameters(const String8& keys);
 
     private:
         static void             setMinBufferCount();
         static void             CallbackWrapper(
                 int event, void *me, void *info);
+               void             deleteRecycledTrack();
 
-        AudioTrack*             mTrack;
-        AudioTrack*             mRecycledTrack;
+        sp<AudioTrack>          mTrack;
+        sp<AudioTrack>          mRecycledTrack;
         sp<AudioOutput>         mNextOutput;
         AudioCallback           mCallback;
         void *                  mCallbackCookie;
@@ -134,6 +138,7 @@ class MediaPlayerService : public BnMediaPlayerService
         uint32_t                mSampleRateHz; // sample rate of the content, as set in open()
         float                   mMsecsPerFrame;
         int                     mSessionId;
+        int                     mUid;
         float                   mSendLevel;
         int                     mAuxEffectId;
         static bool             mIsOnEmulator;
@@ -176,7 +181,7 @@ class MediaPlayerService : public BnMediaPlayerService
     class AudioCache : public MediaPlayerBase::AudioSink
     {
     public:
-                                AudioCache(const char* name);
+                                AudioCache(const sp<IMemoryHeap>& heap);
         virtual                 ~AudioCache() {}
 
         virtual bool            ready() const { return (mChannelCount > 0) && (mHeap->getHeapID() > 0); }
@@ -195,15 +200,19 @@ class MediaPlayerService : public BnMediaPlayerService
                 uint32_t sampleRate, int channelCount, audio_channel_mask_t channelMask,
                 audio_format_t format, int bufferCount = 1,
                 AudioCallback cb = NULL, void *cookie = NULL,
-                audio_output_flags_t flags = AUDIO_OUTPUT_FLAG_NONE);
+                audio_output_flags_t flags = AUDIO_OUTPUT_FLAG_NONE,
+                const audio_offload_info_t *offloadInfo = NULL);
 
-        virtual void            start();
+        virtual status_t        start();
         virtual ssize_t         write(const void* buffer, size_t size);
         virtual void            stop();
         virtual void            flush() {}
         virtual void            pause() {}
         virtual void            close() {}
                 void            setAudioStreamType(audio_stream_type_t streamType) {}
+                // stream type is not used for AudioCache
+        virtual audio_stream_type_t getAudioStreamType() const { return AUDIO_STREAM_DEFAULT; }
+
                 void            setVolume(float left, float right) {}
         virtual status_t        setPlaybackRatePermille(int32_t ratePermille) { return INVALID_OPERATION; }
                 uint32_t        sampleRate() const { return mSampleRate; }
@@ -222,7 +231,7 @@ class MediaPlayerService : public BnMediaPlayerService
 
         Mutex               mLock;
         Condition           mSignal;
-        sp<MemoryHeapBase>  mHeap;
+        sp<IMemoryHeap>     mHeap;
         float               mMsecsPerFrame;
         uint16_t            mChannelCount;
         audio_format_t      mFormat;
@@ -245,8 +254,13 @@ public:
 
     virtual sp<IMediaPlayer>    create(const sp<IMediaPlayerClient>& client, int audioSessionId);
 
-    virtual sp<IMemory>         decode(const char* url, uint32_t *pSampleRate, int* pNumChannels, audio_format_t* pFormat);
-    virtual sp<IMemory>         decode(int fd, int64_t offset, int64_t length, uint32_t *pSampleRate, int* pNumChannels, audio_format_t* pFormat);
+    virtual status_t            decode(const char* url, uint32_t *pSampleRate, int* pNumChannels,
+                                       audio_format_t* pFormat,
+                                       const sp<IMemoryHeap>& heap, size_t *pSize);
+    virtual status_t            decode(int fd, int64_t offset, int64_t length,
+                                       uint32_t *pSampleRate, int* pNumChannels,
+                                       audio_format_t* pFormat,
+                                       const sp<IMemoryHeap>& heap, size_t *pSize);
     virtual sp<IOMX>            getOMX();
     virtual sp<ICrypto>         makeCrypto();
     virtual sp<IDrm>            makeDrm();
@@ -305,6 +319,7 @@ public:
     virtual void                addBatteryData(uint32_t params);
     // API for the Battery app to pull the data of codecs usage
     virtual status_t            pullBatteryData(Parcel* reply);
+#ifdef TARGET_BOARD_FIBER
     /* add by Gary. start {{----------------------------------- */
     virtual status_t            setScreen(int screen);
     virtual status_t            getScreen(int *screen);
@@ -338,6 +353,7 @@ public:
     /* add two general interfaces for expansibility */
     virtual status_t            generalGlobalInterface(int cmd, int int1, int int2, int int3, void *p);
     /* add by Gary. end   -----------------------------------}} */
+#endif
 private:
 
     class Client : public BnMediaPlayer {
@@ -369,6 +385,7 @@ private:
         virtual status_t        setRetransmitEndpoint(const struct sockaddr_in* endpoint);
         virtual status_t        getRetransmitEndpoint(struct sockaddr_in* endpoint);
         virtual status_t        setNextPlayer(const sp<IMediaPlayer>& player);
+#ifdef TARGET_BOARD_FIBER
         /* add by Gary. start {{----------------------------------- */
         virtual status_t        setScreen(int screen);
         virtual status_t        isPlayingVideo(int *playing);
@@ -441,7 +458,8 @@ private:
         virtual status_t        generalInterface(int cmd, int int1, int int2, int int3, void *p);
         /* add by Gary. end   -----------------------------------}} */
         virtual status_t        setDataSource(const sp<IStreamSource> &source, int type);
-        
+#endif        
+
         sp<MediaPlayerBase>     createPlayer(player_type playerType);
 
         virtual status_t        setDataSource(
@@ -511,6 +529,7 @@ private:
                     bool                        mRetransmitEndpointValid;
                     sp<Client>                  mNextClient;
 
+#ifdef TARGET_BOARD_FIBER
                     /* add by Gary. start {{----------------------------------- */
                     int                         mHasSurface;
                     int 						mMsg; //add by lszhang for play during<1 song
@@ -549,7 +568,7 @@ private:
                     int                         mWhiteExtend;
                     int                         mBlackExtend;
                     /* add by Gary. end   -----------------------------------}} */
-
+#endif
         // Metadata filters.
         media::Metadata::Filter mMetadataAllow;  // protected by mLock
         media::Metadata::Filter mMetadataDrop;  // protected by mLock
@@ -576,6 +595,7 @@ private:
                 int32_t                     mNextConnId;
                 sp<IOMX>                    mOMX;
                 sp<ICrypto>                 mCrypto;
+#ifdef TARGET_BOARD_FIBER
                 /* add by Gary. start {{----------------------------------- */
                 int                         mScreen;
                 /* add by Gary. end   -----------------------------------}} */
@@ -598,6 +618,7 @@ private:
                 /*Add by eric_wang. record hdmi state, 20130318 */
                 static int                  mHdmiPlugged;   //1:hdmi plugin, 0:hdmi plugout
                 /*Add by eric_wang. record hdmi state, 20130318, end ---------- */
+#endif
 };
 
 // ----------------------------------------------------------------------------

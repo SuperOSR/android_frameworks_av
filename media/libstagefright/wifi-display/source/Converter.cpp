@@ -21,6 +21,7 @@
 #include "Converter.h"
 
 #include "MediaPuller.h"
+#include "include/avc_utils.h"
 
 #include <cutils/properties.h>
 #include <gui/Surface.h>
@@ -33,6 +34,8 @@
 #include <media/stagefright/MediaDefs.h>
 #include <media/stagefright/MediaErrors.h>
 
+#include <arpa/inet.h>
+
 #include <OMX_Video.h>
 
 namespace android {
@@ -40,14 +43,15 @@ namespace android {
 Converter::Converter(
         const sp<AMessage> &notify,
         const sp<ALooper> &codecLooper,
-        const sp<AMessage> &format,
-        bool usePCMAudio)
-    : mInitCheck(NO_INIT),
-      mNotify(notify),
+        const sp<AMessage> &outputFormat,
+        uint32_t flags)
+    : mNotify(notify),
       mCodecLooper(codecLooper),
-      mInputFormat(format),
+      mOutputFormat(outputFormat),
+      mFlags(flags),
       mIsVideo(false),
-      mIsPCMAudio(usePCMAudio),
+      mIsH264(false),
+      mIsPCMAudio(false),
       mNeedToManuallyPrependSPSPPS(false),
       mDoMoreWorkPending(false)
 #if ENABLE_SILENCE_DETECTION
@@ -56,20 +60,17 @@ Converter::Converter(
 #endif
       ,mPrevVideoBitrate(-1)
       ,mNumFramesToDrop(0)
+      ,mEncodingSuspended(false)
     {
     AString mime;
-    CHECK(mInputFormat->findString("mime", &mime));
+    CHECK(mOutputFormat->findString("mime", &mime));
 
     if (!strncasecmp("video/", mime.c_str(), 6)) {
         mIsVideo = true;
-    }
 
-    CHECK(!usePCMAudio || !mIsVideo);
-
-    mInitCheck = initEncoder();
-
-    if (mInitCheck != OK) {
-        releaseEncoder();
+        mIsH264 = !strcasecmp(mime.c_str(), MEDIA_MIMETYPE_VIDEO_AVC);
+    } else if (!strcasecmp(MEDIA_MIMETYPE_AUDIO_RAW, mime.c_str())) {
+        mIsPCMAudio = true;
     }
 }
 
@@ -119,8 +120,19 @@ void Converter::shutdownAsync() {
     (new AMessage(kWhatShutdown, id()))->post();
 }
 
-status_t Converter::initCheck() const {
-    return mInitCheck;
+status_t Converter::init() {
+    status_t err = initEncoder();
+
+    if (err != OK) {
+        releaseEncoder();
+    }
+
+    return err;
+}
+
+sp<IGraphicBufferProducer> Converter::getGraphicBufferProducer() {
+    CHECK(mFlags & FLAG_USE_SURFACE_INPUT);
+    return mGraphicBufferProducer;
 }
 
 size_t Converter::getInputBufferCount() const {
@@ -152,23 +164,10 @@ int32_t Converter::GetInt32Property(
 }
 
 status_t Converter::initEncoder() {
-    AString inputMIME;
-    CHECK(mInputFormat->findString("mime", &inputMIME));
-
     AString outputMIME;
-    bool isAudio = false;
-    if (!strcasecmp(inputMIME.c_str(), MEDIA_MIMETYPE_AUDIO_RAW)) {
-        if (mIsPCMAudio) {
-            outputMIME = MEDIA_MIMETYPE_AUDIO_RAW;
-        } else {
-            outputMIME = MEDIA_MIMETYPE_AUDIO_AAC;
-        }
-        isAudio = true;
-    } else if (!strcasecmp(inputMIME.c_str(), MEDIA_MIMETYPE_VIDEO_RAW)) {
-        outputMIME = MEDIA_MIMETYPE_VIDEO_AVC;
-    } else {
-        TRESPASS();
-    }
+    CHECK(mOutputFormat->findString("mime", &outputMIME));
+
+    bool isAudio = !strncasecmp(outputMIME.c_str(), "audio/", 6);
 
     if (!mIsPCMAudio) {
         mEncoder = MediaCodec::CreateByType(
@@ -179,16 +178,16 @@ status_t Converter::initEncoder() {
         }
     }
 
-    mOutputFormat = mInputFormat->dup();
-
     if (mIsPCMAudio) {
         return OK;
     }
 
-    mOutputFormat->setString("mime", outputMIME.c_str());
-
     int32_t audioBitrate = GetInt32Property("media.wfd.audio-bitrate", 128000);
+#ifdef TARGET_BOARD_FIBER
     int32_t videoBitrate = GetInt32Property("media.wfd.video-bitrate", 3000000);
+#else
+    int32_t videoBitrate = GetInt32Property("media.wfd.video-bitrate", 5000000);
+#endif
     mPrevVideoBitrate = videoBitrate;
 
     ALOGI("using audio bitrate of %d bps, video bitrate of %d bps",
@@ -262,6 +261,16 @@ status_t Converter::initEncoder() {
         return err;
     }
 
+    if (mFlags & FLAG_USE_SURFACE_INPUT) {
+        CHECK(mIsVideo);
+
+        err = mEncoder->createInputSurface(&mGraphicBufferProducer);
+
+        if (err != OK) {
+            return err;
+        }
+    }
+
     err = mEncoder->start();
 
     if (err != OK) {
@@ -274,7 +283,17 @@ status_t Converter::initEncoder() {
         return err;
     }
 
-    return mEncoder->getOutputBuffers(&mEncoderOutputBuffers);
+    err = mEncoder->getOutputBuffers(&mEncoderOutputBuffers);
+
+    if (err != OK) {
+        return err;
+    }
+
+    if (mFlags & FLAG_USE_SURFACE_INPUT) {
+        scheduleDoMoreWork();
+    }
+
+    return OK;
 }
 
 void Converter::notifyError(status_t err) {
@@ -330,9 +349,12 @@ void Converter::onMessageReceived(const sp<AMessage> &msg) {
                 sp<ABuffer> accessUnit;
                 CHECK(msg->findBuffer("accessUnit", &accessUnit));
 
-                if (mIsVideo && mNumFramesToDrop) {
-                    --mNumFramesToDrop;
-                    ALOGI("dropping frame.");
+                if (mNumFramesToDrop > 0 || mEncodingSuspended) {
+                    if (mNumFramesToDrop > 0) {
+                        --mNumFramesToDrop;
+                        ALOGI("dropping frame.");
+                    }
+
                     ReleaseMediaBufferReference(accessUnit);
                     break;
                 }
@@ -414,7 +436,7 @@ void Converter::onMessageReceived(const sp<AMessage> &msg) {
             }
 
             if (mIsVideo) {
-                ALOGI("requesting IDR frame");
+                ALOGV("requesting IDR frame");
                 mEncoder->requestIDRFrame();
             }
             break;
@@ -424,6 +446,7 @@ void Converter::onMessageReceived(const sp<AMessage> &msg) {
         {
             ALOGI("shutting down %s encoder", mIsVideo ? "video" : "audio");
 
+#ifdef TARGET_BOARD_FIBER
             /*bugfix: release queue buffer,it may fall into blackhold.
              *		when 4kplayer is floating in the dynamic desktop,
              *		and someone disable wifi in the quicksetting, this will lead to UI deadlock.
@@ -441,18 +464,48 @@ void Converter::onMessageReceived(const sp<AMessage> &msg) {
                     mbuf = NULL;
                 }
             }
-
+#endif
             releaseEncoder();
 
             AString mime;
-            CHECK(mInputFormat->findString("mime", &mime));
+            CHECK(mOutputFormat->findString("mime", &mime));
             ALOGI("encoder (%s) shut down.", mime.c_str());
+
+            sp<AMessage> notify = mNotify->dup();
+            notify->setInt32("what", kWhatShutdownCompleted);
+            notify->post();
             break;
         }
 
         case kWhatDropAFrame:
         {
             ++mNumFramesToDrop;
+            break;
+        }
+
+        case kWhatReleaseOutputBuffer:
+        {
+            if (mEncoder != NULL) {
+                size_t bufferIndex;
+                CHECK(msg->findInt32("bufferIndex", (int32_t*)&bufferIndex));
+                CHECK(bufferIndex < mEncoderOutputBuffers.size());
+                mEncoder->releaseOutputBuffer(bufferIndex);
+            }
+            break;
+        }
+
+        case kWhatSuspendEncoding:
+        {
+            int32_t suspend;
+            CHECK(msg->findInt32("suspend", &suspend));
+
+            mEncodingSuspended = suspend;
+
+            if (mFlags & FLAG_USE_SURFACE_INPUT) {
+                sp<AMessage> params = new AMessage;
+                params->setInt32("drop-input-frames",suspend);
+                mEncoder->setParameters(params);
+            }
             break;
         }
 
@@ -641,21 +694,38 @@ status_t Converter::feedEncoderInputBuffers() {
     return OK;
 }
 
+sp<ABuffer> Converter::prependCSD(const sp<ABuffer> &accessUnit) const {
+    CHECK(mCSD0 != NULL);
+
+    sp<ABuffer> dup = new ABuffer(accessUnit->size() + mCSD0->size());
+    memcpy(dup->data(), mCSD0->data(), mCSD0->size());
+    memcpy(dup->data() + mCSD0->size(), accessUnit->data(), accessUnit->size());
+
+    int64_t timeUs;
+    CHECK(accessUnit->meta()->findInt64("timeUs", &timeUs));
+
+    dup->meta()->setInt64("timeUs", timeUs);
+
+    return dup;
+}
+
 status_t Converter::doMoreWork() {
     status_t err;
 
-    for (;;) {
-        size_t bufferIndex;
-        err = mEncoder->dequeueInputBuffer(&bufferIndex);
+    if (!(mFlags & FLAG_USE_SURFACE_INPUT)) {
+        for (;;) {
+            size_t bufferIndex;
+            err = mEncoder->dequeueInputBuffer(&bufferIndex);
 
-        if (err != OK) {
-            break;
+            if (err != OK) {
+                break;
+            }
+
+            mAvailEncoderInputIndices.push_back(bufferIndex);
         }
 
-        mAvailEncoderInputIndices.push_back(bufferIndex);
+        feedEncoderInputBuffers();
     }
-
-    feedEncoderInputBuffers();
 
     for (;;) {
         size_t bufferIndex;
@@ -663,6 +733,7 @@ status_t Converter::doMoreWork() {
         size_t size;
         int64_t timeUs;
         uint32_t flags;
+        native_handle_t* handle = NULL;
         err = mEncoder->dequeueOutputBuffer(
                 &bufferIndex, &offset, &size, &timeUs, &flags);
 
@@ -685,19 +756,63 @@ status_t Converter::doMoreWork() {
             notify->setInt32("what", kWhatEOS);
             notify->post();
         } else {
-            sp<ABuffer> buffer = new ABuffer(size);
+#if 0
+            if (mIsVideo) {
+                int32_t videoBitrate = GetInt32Property(
+                        "media.wfd.video-bitrate", 5000000);
+
+                setVideoBitrate(videoBitrate);
+            }
+#endif
+
+            sp<ABuffer> buffer;
+            sp<ABuffer> outbuf = mEncoderOutputBuffers.itemAt(bufferIndex);
+
+            if (outbuf->meta()->findPointer("handle", (void**)&handle) &&
+                    handle != NULL) {
+                int32_t rangeLength, rangeOffset;
+                CHECK(outbuf->meta()->findInt32("rangeOffset", &rangeOffset));
+                CHECK(outbuf->meta()->findInt32("rangeLength", &rangeLength));
+                outbuf->meta()->setPointer("handle", NULL);
+
+                // MediaSender will post the following message when HDCP
+                // is done, to release the output buffer back to encoder.
+                sp<AMessage> notify(new AMessage(
+                        kWhatReleaseOutputBuffer, id()));
+                notify->setInt32("bufferIndex", bufferIndex);
+
+                buffer = new ABuffer(
+                        rangeLength > (int32_t)size ? rangeLength : size);
+                buffer->meta()->setPointer("handle", handle);
+                buffer->meta()->setInt32("rangeOffset", rangeOffset);
+                buffer->meta()->setInt32("rangeLength", rangeLength);
+                buffer->meta()->setMessage("notify", notify);
+            } else {
+                buffer = new ABuffer(size);
+            }
+
             buffer->meta()->setInt64("timeUs", timeUs);
 
             ALOGV("[%s] time %lld us (%.2f secs)",
                   mIsVideo ? "video" : "audio", timeUs, timeUs / 1E6);
 
-            memcpy(buffer->data(),
-                   mEncoderOutputBuffers.itemAt(bufferIndex)->base() + offset,
-                   size);
+            memcpy(buffer->data(), outbuf->base() + offset, size);
 
             if (flags & MediaCodec::BUFFER_FLAG_CODECCONFIG) {
-                mOutputFormat->setBuffer("csd-0", buffer);
+                if (!handle) {
+                    if (mIsH264) {
+                        mCSD0 = buffer;
+                    }
+                    mOutputFormat->setBuffer("csd-0", buffer);
+                }
             } else {
+                if (mNeedToManuallyPrependSPSPPS
+                        && mIsH264
+                        && (mFlags & FLAG_PREPEND_CSD_IF_NECESSARY)
+                        && IsIDR(buffer)) {
+                    buffer = prependCSD(buffer);
+                }
+
                 sp<AMessage> notify = mNotify->dup();
                 notify->setInt32("what", kWhatAccessUnit);
                 notify->setBuffer("accessUnit", buffer);
@@ -705,7 +820,9 @@ status_t Converter::doMoreWork() {
             }
         }
 
-        mEncoder->releaseOutputBuffer(bufferIndex);
+        if (!handle) {
+            mEncoder->releaseOutputBuffer(bufferIndex);
+        }
 
         if (flags & MediaCodec::BUFFER_FLAG_EOS) {
             break;
@@ -719,14 +836,25 @@ void Converter::requestIDRFrame() {
     (new AMessage(kWhatRequestIDRFrame, id()))->post();
 }
 
+#ifdef TARGET_BOARD_FIBER
 status_t Converter::setEncoderBitrate(int32_t bitrate) {
     if(mEncoder == NULL)
         return NO_INIT;
     return mEncoder->setEncoderBitrate(bitrate);
 }
+#endif
 
 void Converter::dropAFrame() {
+    // Unsupported in surface input mode.
+    CHECK(!(mFlags & FLAG_USE_SURFACE_INPUT));
+
     (new AMessage(kWhatDropAFrame, id()))->post();
+}
+
+void Converter::suspendEncoding(bool suspend) {
+    sp<AMessage> msg = new AMessage(kWhatSuspendEncoding, id());
+    msg->setInt32("suspend", suspend);
+    msg->post();
 }
 
 int32_t Converter::getVideoBitrate() const {
@@ -736,11 +864,12 @@ int32_t Converter::getVideoBitrate() const {
 void Converter::setVideoBitrate(int32_t bitRate) {
     if (mIsVideo && mEncoder != NULL && bitRate != mPrevVideoBitrate) {
         sp<AMessage> params = new AMessage;
-        params->setInt32("videoBitrate", bitRate);
+        params->setInt32("video-bitrate", bitRate);
 
         mEncoder->setParameters(params);
 
         mPrevVideoBitrate = bitRate;
     }
+}
 
 }  // namespace android

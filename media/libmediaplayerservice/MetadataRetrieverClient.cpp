@@ -38,7 +38,9 @@
 #include "MetadataRetrieverClient.h"
 #include "StagefrightMetadataRetriever.h"
 #include "MediaPlayerFactory.h"
+#ifdef TARGET_BOARD_FIBER
 #include "CedarXMetadataRetriever.h"
+#endif
 
 namespace android {
 
@@ -84,12 +86,14 @@ static sp<MediaMetadataRetrieverBase> createRetriever(player_type playerType)
 {
     sp<MediaMetadataRetrieverBase> p;
     switch (playerType) {
+#ifdef TARGET_BOARD_FIBER
         case CEDARX_PLAYER:
     	case CEDARA_PLAYER:
         {
             p = new CedarXMetadataRetriever;
             break;
     	}
+#endif
         case STAGEFRIGHT_PLAYER:
         case NU_PLAYER:
         {
@@ -165,12 +169,20 @@ status_t MetadataRetrieverClient::setDataSource(int fd, int64_t offset, int64_t 
         ALOGV("calculated length = %lld", length);
     }
 
+#ifdef TARGET_BOARD_FIBER
     player_type playerType =
         MediaPlayerFactory::getPlayerType(NULL /* client */,
                                           fd,
                                           offset,
                                           length,
                                           false);
+#else
+    player_type playerType =
+        MediaPlayerFactory::getPlayerType(NULL /* client */,
+                                          fd,
+                                          offset,
+                                          length);
+#endif
     ALOGV("player type = %d", playerType);
     sp<MediaMetadataRetrieverBase> p = createRetriever(playerType);
     if (p == NULL) {
@@ -183,76 +195,76 @@ status_t MetadataRetrieverClient::setDataSource(int fd, int64_t offset, int64_t 
     return status;
 }
 
+#ifdef TARGET_BOARD_FIBER
 sp<IMemory> MetadataRetrieverClient::getStreamAtTime(int64_t timeUs)
-{
-	status_t ret;
-	int      nStreamSize;
+ {
+    status_t ret;
+    int      nStreamSize;
 
     Mutex::Autolock lock(mLock);
-
     mThumbnail.clear();
-    if (mRetriever == NULL)
-    {
+    if (mRetriever == NULL) {
         ALOGE("retriever is not initialized");
         return NULL;
     }
 
     mThumbnail = mRetriever->getStreamAtTime(timeUs);
-    if (mThumbnail == NULL)
-    {
+    if (mThumbnail == NULL) {
         ALOGE("failed to capture video stream.");
     }
 
     return mThumbnail;
 }
+#endif
 
 sp<IMemory> MetadataRetrieverClient::getFrameAtTime(int64_t timeUs, int option)
 {
-    if(option != 0x3)
-    {
-        ALOGV("getFrameAtTime: time(%lld us) option(%d)", timeUs, option);
-        Mutex::Autolock lock(mLock);
-        mThumbnail.clear();
-        if (mRetriever == NULL) {
-            ALOGE("retriever is not initialized");
-            return NULL;
-        }
-        VideoFrame *frame = mRetriever->getFrameAtTime(timeUs, option);
-        if (frame == NULL) {
-            ALOGE("failed to capture a video frame");
-            return NULL;
-        }
-        size_t size = sizeof(VideoFrame) + frame->mSize;
-        sp<MemoryHeapBase> heap = new MemoryHeapBase(size, 0, "MetadataRetrieverClient");
-        if (heap == NULL) {
-            ALOGE("failed to create MemoryDealer");
-            delete frame;
-            return NULL;
-        }
-        mThumbnail = new MemoryBase(heap, 0, size);
-        if (mThumbnail == NULL) {
-            ALOGE("not enough memory for VideoFrame size=%u", size);
-            delete frame;
-            return NULL;
-        }
-        VideoFrame *frameCopy = static_cast<VideoFrame *>(mThumbnail->pointer());
-        frameCopy->mWidth = frame->mWidth;
-        frameCopy->mHeight = frame->mHeight;
-        frameCopy->mDisplayWidth = frame->mDisplayWidth;
-        frameCopy->mDisplayHeight = frame->mDisplayHeight;
-        frameCopy->mSize = frame->mSize;
-        frameCopy->mRotationAngle = frame->mRotationAngle;
-        ALOGV("rotation: %d", frameCopy->mRotationAngle);
-        frameCopy->mData = (uint8_t *)frameCopy + sizeof(VideoFrame);
-        memcpy(frameCopy->mData, frame->mData, frame->mSize);
-        delete frame;  // Fix memory leakage
-        return mThumbnail;
+#ifdef TARGET_BOARD_FIBER
+    if (option != 0x3){
+#endif
+    ALOGV("getFrameAtTime: time(%lld us) option(%d)", timeUs, option);
+    Mutex::Autolock lock(mLock);
+    mThumbnail.clear();
+    if (mRetriever == NULL) {
+        ALOGE("retriever is not initialized");
+        return NULL;
     }
-    else
-    {
+    VideoFrame *frame = mRetriever->getFrameAtTime(timeUs, option);
+    if (frame == NULL) {
+        ALOGE("failed to capture a video frame");
+        return NULL;
+    }
+    size_t size = sizeof(VideoFrame) + frame->mSize;
+    sp<MemoryHeapBase> heap = new MemoryHeapBase(size, 0, "MetadataRetrieverClient");
+    if (heap == NULL) {
+        ALOGE("failed to create MemoryDealer");
+        delete frame;
+        return NULL;
+    }
+    mThumbnail = new MemoryBase(heap, 0, size);
+    if (mThumbnail == NULL) {
+        ALOGE("not enough memory for VideoFrame size=%u", size);
+        delete frame;
+        return NULL;
+    }
+    VideoFrame *frameCopy = static_cast<VideoFrame *>(mThumbnail->pointer());
+    frameCopy->mWidth = frame->mWidth;
+    frameCopy->mHeight = frame->mHeight;
+    frameCopy->mDisplayWidth = frame->mDisplayWidth;
+    frameCopy->mDisplayHeight = frame->mDisplayHeight;
+    frameCopy->mSize = frame->mSize;
+    frameCopy->mRotationAngle = frame->mRotationAngle;
+    ALOGV("rotation: %d", frameCopy->mRotationAngle);
+    frameCopy->mData = (uint8_t *)frameCopy + sizeof(VideoFrame);
+    memcpy(frameCopy->mData, frame->mData, frame->mSize);
+    delete frame;  // Fix memory leakage
+    return mThumbnail;
+#ifdef TARGET_BOARD_FIBER
+    }else{
         ALOGD("getStreamAtTime: time(%lld us) option(%d)", timeUs, option);
-    	return getStreamAtTime(timeUs);
+        return getStreamAtTime(timeUs);
     }
+#endif
 }
 
 sp<IMemory> MetadataRetrieverClient::extractAlbumArt()

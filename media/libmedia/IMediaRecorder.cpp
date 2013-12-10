@@ -52,9 +52,11 @@ enum {
     SET_PREVIEW_SURFACE,
     SET_CAMERA,
     SET_LISTENER,
-    SET_CLIENT_NAME,
+#ifdef TARGET_BOARD_FIBER
     QUEUE_BUFFER = RELEASE + 200,
     GET_ONE_BSFRAME,
+#endif
+    SET_CLIENT_NAME
 };
 
 class BpMediaRecorder: public BpInterface<IMediaRecorder>
@@ -89,6 +91,7 @@ public:
         return interface_cast<IGraphicBufferProducer>(reply.readStrongBinder());
     }
 
+#ifdef TARGET_BOARD_FIBER
     status_t queueBuffer(int index, int addr_y, int addr_c, int64_t timestamp)
     {
 		ALOGV("queueBuffer(%d)", index);
@@ -102,6 +105,7 @@ public:
 		return reply.readInt32();
     }
     
+#endif
     status_t setPreviewSurface(const sp<IGraphicBufferProducer>& surface)
     {
         ALOGV("setPreviewSurface(%p)", surface.get());
@@ -262,6 +266,7 @@ public:
         return reply.readInt32();
     }
 
+#ifdef TARGET_BOARD_FIBER
     sp<IMemory> getOneBsFrame(int mode)
 	{
 		ALOGV("getMaxAmplitude");
@@ -276,6 +281,7 @@ public:
 		return interface_cast<IMemory>(reply.readStrongBinder());
 	}
 
+#endif
     status_t start()
     {
         ALOGV("start");
@@ -381,6 +387,7 @@ status_t BnMediaRecorder::onTransact(
             reply->writeInt32(ret);
             return NO_ERROR;
         } break;
+#ifdef TARGET_BOARD_FIBER
         case GET_ONE_BSFRAME: {
         	ALOGV("GET_ONE_BSFRAME");
 			CHECK_INTERFACE(IMediaRecorder, data, reply);
@@ -394,6 +401,7 @@ status_t BnMediaRecorder::onTransact(
             }
 			return NO_ERROR;
         } break;
+#endif
         case SET_VIDEO_SOURCE: {
             ALOGV("SET_VIDEO_SOURCE");
             CHECK_INTERFACE(IMediaRecorder, data, reply);
@@ -512,6 +520,7 @@ status_t BnMediaRecorder::onTransact(
             }
             return NO_ERROR;
         } break;
+#ifdef TARGET_BOARD_FIBER
         case QUEUE_BUFFER: {
         	ALOGV("QUEUE_BUFFER");
 			CHECK_INTERFACE(IMediaRecorder, data, reply);
@@ -522,6 +531,7 @@ status_t BnMediaRecorder::onTransact(
 			reply->writeInt32(queueBuffer(index, addr_y, addr_c, timestamp));
             return NO_ERROR;
         } break;
+#endif
         default:
             return BBinder::onTransact(code, data, reply, flags);
     }

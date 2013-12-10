@@ -29,15 +29,18 @@ namespace android {
 
 enum {
     DISCONNECT = IBinder::FIRST_CALL_TRANSACTION,
-    SET_PREVIEW_TEXTURE,
+    SET_PREVIEW_TARGET,
     SET_PREVIEW_CALLBACK_FLAG,
+    SET_PREVIEW_CALLBACK_TARGET,
     START_PREVIEW,
     STOP_PREVIEW,
     AUTO_FOCUS,
     CANCEL_AUTO_FOCUS,
     TAKE_PICTURE,
     SET_PARAMETERS,
+#ifdef TARGET_BOARD_FIBER
     SET_FD,
+#endif
     GET_PARAMETERS,
     SEND_COMMAND,
     CONNECT,
@@ -66,17 +69,18 @@ public:
         Parcel data, reply;
         data.writeInterfaceToken(ICamera::getInterfaceDescriptor());
         remote()->transact(DISCONNECT, data, &reply);
+        reply.readExceptionCode();
     }
 
     // pass the buffered IGraphicBufferProducer to the camera service
-    status_t setPreviewTexture(const sp<IGraphicBufferProducer>& bufferProducer)
+    status_t setPreviewTarget(const sp<IGraphicBufferProducer>& bufferProducer)
     {
-        ALOGV("setPreviewTexture");
+        ALOGV("setPreviewTarget");
         Parcel data, reply;
         data.writeInterfaceToken(ICamera::getInterfaceDescriptor());
         sp<IBinder> b(bufferProducer->asBinder());
         data.writeStrongBinder(b);
-        remote()->transact(SET_PREVIEW_TEXTURE, data, &reply);
+        remote()->transact(SET_PREVIEW_TARGET, data, &reply);
         return reply.readInt32();
     }
 
@@ -91,7 +95,19 @@ public:
         remote()->transact(SET_PREVIEW_CALLBACK_FLAG, data, &reply);
     }
 
-    // start preview mode, must call setPreviewDisplay first
+    status_t setPreviewCallbackTarget(
+            const sp<IGraphicBufferProducer>& callbackProducer)
+    {
+        ALOGV("setPreviewCallbackTarget");
+        Parcel data, reply;
+        data.writeInterfaceToken(ICamera::getInterfaceDescriptor());
+        sp<IBinder> b(callbackProducer->asBinder());
+        data.writeStrongBinder(b);
+        remote()->transact(SET_PREVIEW_CALLBACK_TARGET, data, &reply);
+        return reply.readInt32();
+    }
+
+    // start preview mode, must call setPreviewTarget first
     status_t startPreview()
     {
         ALOGV("startPreview");
@@ -101,7 +117,7 @@ public:
         return reply.readInt32();
     }
 
-    // start recording mode, must call setPreviewDisplay first
+    // start recording mode, must call setPreviewTarget first
     status_t startRecording()
     {
         ALOGV("startRecording");
@@ -213,6 +229,7 @@ public:
         return reply.readInt32();
     }
 
+#ifdef TARGET_BOARD_FIBER
 	//set file descriptor to camera HAL for writing file by fuqiang.
 	status_t setFd(int fd)
     {
@@ -224,6 +241,7 @@ public:
         return reply.readInt32();
     }
 
+#endif
     // get preview/capture parameters - key/value pairs
     String8 getParameters() const
     {
@@ -280,14 +298,15 @@ status_t BnCamera::onTransact(
             ALOGV("DISCONNECT");
             CHECK_INTERFACE(ICamera, data, reply);
             disconnect();
+            reply->writeNoException();
             return NO_ERROR;
         } break;
-        case SET_PREVIEW_TEXTURE: {
-            ALOGV("SET_PREVIEW_TEXTURE");
+        case SET_PREVIEW_TARGET: {
+            ALOGV("SET_PREVIEW_TARGET");
             CHECK_INTERFACE(ICamera, data, reply);
             sp<IGraphicBufferProducer> st =
                 interface_cast<IGraphicBufferProducer>(data.readStrongBinder());
-            reply->writeInt32(setPreviewTexture(st));
+            reply->writeInt32(setPreviewTarget(st));
             return NO_ERROR;
         } break;
         case SET_PREVIEW_CALLBACK_FLAG: {
@@ -297,6 +316,14 @@ status_t BnCamera::onTransact(
             setPreviewCallbackFlag(callback_flag);
             return NO_ERROR;
         } break;
+        case SET_PREVIEW_CALLBACK_TARGET: {
+            ALOGV("SET_PREVIEW_CALLBACK_TARGET");
+            CHECK_INTERFACE(ICamera, data, reply);
+            sp<IGraphicBufferProducer> cp =
+                interface_cast<IGraphicBufferProducer>(data.readStrongBinder());
+            reply->writeInt32(setPreviewCallbackTarget(cp));
+            return NO_ERROR;
+        }
         case START_PREVIEW: {
             ALOGV("START_PREVIEW");
             CHECK_INTERFACE(ICamera, data, reply);
@@ -373,6 +400,7 @@ status_t BnCamera::onTransact(
             reply->writeInt32(setParameters(params));
             return NO_ERROR;
          } break;
+#ifdef TARGET_BOARD_FIBER
 		case SET_FD: {
             CHECK_INTERFACE(ICamera, data, reply);
             int fd = data.readFileDescriptor();
@@ -380,6 +408,7 @@ status_t BnCamera::onTransact(
             reply->writeInt32(setFd(fd));
             return NO_ERROR;
          } break;
+#endif
         case GET_PARAMETERS: {
             ALOGV("GET_PARAMETERS");
             CHECK_INTERFACE(ICamera, data, reply);

@@ -255,6 +255,7 @@ status_t NuPlayerDriver::pause() {
             return OK;
 
         case STATE_RUNNING:
+            notifyListener(MEDIA_PAUSED);
             mPlayer->pause();
             break;
 
@@ -271,10 +272,12 @@ bool NuPlayerDriver::isPlaying() {
     return mState == STATE_RUNNING && !mAtEOS;
 }
 
+#ifdef TARGET_BOARD_FIBER
 int NuPlayerDriver::getMeidaPlayerState() {
     ALOGV("getMeidaPlayerState");
     return PLAYER_STATE_SUSPEND;
 }
+#endif
 
 status_t NuPlayerDriver::seekTo(int msec) {
     Mutex::Autolock autoLock(mLock);
@@ -292,6 +295,8 @@ status_t NuPlayerDriver::seekTo(int msec) {
         case STATE_PAUSED:
         {
             mAtEOS = false;
+            // seeks can take a while, so we essentially paused
+            notifyListener(MEDIA_PAUSED);
             mPlayer->seekToAsync(seekTimeUs);
             break;
         }
@@ -350,6 +355,8 @@ status_t NuPlayerDriver::reset() {
             break;
     }
 
+    notifyListener(MEDIA_STOPPED);
+
     mState = STATE_RESET_IN_PROGRESS;
     mPlayer->resetAsync();
 
@@ -390,6 +397,23 @@ status_t NuPlayerDriver::invoke(const Parcel &request, Parcel *reply) {
         {
             int mode = request.readInt32();
             return mPlayer->setVideoScalingMode(mode);
+        }
+
+        case INVOKE_ID_GET_TRACK_INFO:
+        {
+            return mPlayer->getTrackInfo(reply);
+        }
+
+        case INVOKE_ID_SELECT_TRACK:
+        {
+            int trackIndex = request.readInt32();
+            return mPlayer->selectTrack(trackIndex, true /* select */);
+        }
+
+        case INVOKE_ID_UNSELECT_TRACK:
+        {
+            int trackIndex = request.readInt32();
+            return mPlayer->selectTrack(trackIndex, false /* select */);
         }
 
         default:
@@ -495,12 +519,13 @@ status_t NuPlayerDriver::dump(int fd, const Vector<String16> &args) const {
     return OK;
 }
 
-void NuPlayerDriver::notifyListener(int msg, int ext1, int ext2) {
+void NuPlayerDriver::notifyListener(
+        int msg, int ext1, int ext2, const Parcel *in) {
     if (msg == MEDIA_PLAYBACK_COMPLETE || msg == MEDIA_ERROR) {
         mAtEOS = true;
     }
 
-    sendEvent(msg, ext1, ext2);
+    sendEvent(msg, ext1, ext2, in);
 }
 
 void NuPlayerDriver::notifySetDataSourceCompleted(status_t err) {

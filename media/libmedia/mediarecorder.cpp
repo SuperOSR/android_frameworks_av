@@ -25,11 +25,14 @@
 #include <media/IMediaRecorder.h>
 #include <media/mediaplayer.h>  // for MEDIA_ERROR_SERVER_DIED
 #include <gui/IGraphicBufferProducer.h>
+#ifdef TARGET_BOARD_FIBER
 #include <binder/IPCThreadState.h>
 #include <fcntl.h>
+#endif
 
 namespace android {
 
+#ifdef TARGET_BOARD_FIBER
 #define GET_CALLING_PID	(IPCThreadState::self()->getCallingPid())
 void getCallingProcessName(char *name)
 {
@@ -213,7 +216,11 @@ status_t MediaRecorder::setOutputFormat(int of)
         ALOGE("setOutputFormat called in an invalid state: %d", mCurrentState);
         return INVALID_OPERATION;
     }
+#ifdef TARGET_BOARD_FIBER
     if (mIsVideoSourceSet && of >= OUTPUT_FORMAT_AUDIO_ONLY_START && of != OUTPUT_FORMAT_RTP_AVP && of != OUTPUT_FORMAT_MPEG2TS && of != OUTPUT_FORMAT_AWTS && of != OUTPUT_FORMAT_RAW) { //first non-video output format
+#else
+    if (mIsVideoSourceSet && of >= OUTPUT_FORMAT_AUDIO_ONLY_START && of != OUTPUT_FORMAT_RTP_AVP && of != OUTPUT_FORMAT_MPEG2TS) { //first non-video output format
+#endif
         ALOGE("output format (%d) is meant for audio recording only and incompatible with video recording", of);
         return INVALID_OPERATION;
     }
@@ -392,6 +399,7 @@ sp<IGraphicBufferProducer> MediaRecorder::
     return mSurfaceMediaSource;
 }
 
+#ifdef TARGET_BOARD_FIBER
 status_t MediaRecorder::queueBuffer(int index, int addr_y, int addr_c, int64_t timestamp)
 {
 	ALOGV("queueBuffer(%d)", index);
@@ -420,6 +428,7 @@ sp<IMemory> MediaRecorder::getOneBsFrame(int mode)
 
 	return mMediaRecorder->getOneBsFrame(mode);
 }
+#endif
 
 status_t MediaRecorder::setVideoFrameRate(int frames_per_second)
 {
@@ -585,38 +594,43 @@ status_t MediaRecorder::stop()
 // Reset should be OK in any state
 status_t MediaRecorder::reset()
 {
-    char *mCallingProcessName = NULL;  
     ALOGV("reset");
     if (mMediaRecorder == NULL) {
         ALOGE("media recorder is not initialized yet");
         return INVALID_OPERATION;
     }
 
-    mCallingProcessName = (char *)malloc(sizeof(char) * 128);
+#ifdef TARGET_BOARD_FIBER
+    char *mCallingProcessName = (char *)malloc(sizeof(char) * 128);
 	getCallingProcessName(mCallingProcessName);
-    ALOGV("mCallingProcessName %s", mCallingProcessName);
-
+#endif
     doCleanUp();
     status_t ret = UNKNOWN_ERROR;
     switch (mCurrentState) {
         case MEDIA_RECORDER_IDLE:
             ret = OK;
             break;
+#ifdef TARGET_BOARD_FIBER
         case MEDIA_RECORDER_PREPARED:
-        if (strcmp(mCallingProcessName, "com.android.cts.media") == 0) {
-            ret = OK;
-            break;
-        }
+            if (strcmp(mCallingProcessName, "com.android.cts.media") == 0) {
+                ret = OK;
+                break;
+            }
+#endif
         case MEDIA_RECORDER_RECORDING:
         case MEDIA_RECORDER_DATASOURCE_CONFIGURED:
-        //case MEDIA_RECORDER_PREPARED:
+#ifndef TARGET_BOARD_FIBER
+        case MEDIA_RECORDER_PREPARED:
+#endif
         case MEDIA_RECORDER_ERROR: {
             ret = doReset();
             if (OK != ret) {
+#ifdef TARGET_BOARD_FIBER
                 if (mCallingProcessName != NULL) {
             		free(mCallingProcessName);
             		mCallingProcessName = NULL;
             	}
+#endif
                 return ret;  // No need to continue
             }
         }  // Intentional fall through
@@ -629,12 +643,12 @@ status_t MediaRecorder::reset()
             break;
         }
     }
-
+#ifdef TARGET_BOARD_FIBER
     if (mCallingProcessName != NULL) {
 		free(mCallingProcessName);
 		mCallingProcessName = NULL;
 	}
-    
+#endif
     return ret;
 }
 

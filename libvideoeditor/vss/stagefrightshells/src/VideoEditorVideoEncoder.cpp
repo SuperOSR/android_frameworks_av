@@ -886,8 +886,7 @@ M4OSA_ERR VideoEditorVideoEncoder_processOutputBuffer(
         if ( Cts < pEncoderContext->mLastCTS ) {
             ALOGV("VideoEncoder_processOutputBuffer WARNING : Cts is going "
             "backwards %d < %d", Cts, pEncoderContext->mLastCTS);
-            //goto cleanUp;
-
+#ifdef TARGET_BOARD_FIBER
 			switch( pEncoderContext->mCodecParams->FrameRate ) {
 		        case M4ENCODER_k5_FPS:    Cts = pEncoderContext->mLastCTS + 500/5;  break;
 		        case M4ENCODER_k7_5_FPS:  Cts = pEncoderContext->mLastCTS + 500/8;  break;
@@ -907,6 +906,8 @@ M4OSA_ERR VideoEditorVideoEncoder_processOutputBuffer(
 					Cts = pEncoderContext->mLastCTS + 500/30; break;
 		            break;
 	    	}
+#endif
+            goto cleanUp;
         }
         ALOGV("VideoEditorVideoEncoder_processOutputBuffer : %d %d",
             Cts, pEncoderContext->mLastCTS);
@@ -1123,7 +1124,11 @@ M4OSA_ERR VideoEditorVideoEncoder_stop(M4ENCODER_Context pContext) {
     if ( (BUFFERING | READING) & pEncoderContext->mState ) {
         while (1)  {
             MediaBuffer *outputBuffer =
+#ifdef TARGET_BOARD_FIBER
                 pEncoderContext->mPuller->getBufferNonBlocking();
+#else
+                pEncoderContext->mPuller->getBufferBlocking();
+#endif
 
             if (outputBuffer == NULL) break;
 

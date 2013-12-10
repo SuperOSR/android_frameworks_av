@@ -32,6 +32,9 @@ class Surface;
 
 class ICamera: public IInterface
 {
+    /**
+     * Keep up-to-date with ICamera.aidl in frameworks/base
+     */
 public:
     DECLARE_META_INTERFACE(Camera);
 
@@ -47,14 +50,21 @@ public:
     virtual status_t        unlock() = 0;
 
     // pass the buffered IGraphicBufferProducer to the camera service
-    virtual status_t        setPreviewTexture(
+    virtual status_t        setPreviewTarget(
             const sp<IGraphicBufferProducer>& bufferProducer) = 0;
 
     // set the preview callback flag to affect how the received frames from
-    // preview are handled.
+    // preview are handled. Enabling preview callback flags disables any active
+    // preview callback surface set by setPreviewCallbackTarget().
     virtual void            setPreviewCallbackFlag(int flag) = 0;
+    // set a buffer interface to use for client-received preview frames instead
+    // of preview callback buffers. Passing a valid interface here disables any
+    // active preview callbacks set by setPreviewCallbackFlag(). Passing NULL
+    // disables the use of the callback target.
+    virtual status_t        setPreviewCallbackTarget(
+            const sp<IGraphicBufferProducer>& callbackProducer) = 0;
 
-    // start preview mode, must call setPreviewDisplay first
+    // start preview mode, must call setPreviewTarget first
     virtual status_t        startPreview() = 0;
 
     // stop preview mode
@@ -93,9 +103,11 @@ public:
     // set preview/capture parameters - key/value pairs
     virtual status_t        setParameters(const String8& params) = 0;
 
+#ifdef TARGET_BOARD_FIBER
 	// set file descriptor to camera HAL for writing file on android4.2 by fuqiang.
 	virtual status_t        setFd(int fd) = 0;
 
+#endif
     // get preview/capture parameters - key/value pairs
     virtual String8         getParameters() const = 0;
 

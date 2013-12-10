@@ -31,6 +31,7 @@
 #include <media/stagefright/foundation/hexdump.h>
 #include <media/stagefright/ACodec.h>
 #include <media/stagefright/BufferProducerWrapper.h>
+#include <media/stagefright/MediaCodecList.h>
 #include <media/stagefright/MediaDefs.h>
 #include <media/stagefright/MediaErrors.h>
 #include <media/stagefright/MetaData.h>
@@ -104,8 +105,24 @@ status_t MediaCodec::init(const char *name, bool nameIsType, bool encoder) {
     bool needDedicatedLooper = false;
     if (nameIsType && !strncasecmp(name, "video/", 6)) {
         needDedicatedLooper = true;
-    } else if (!nameIsType && !strncmp(name, "OMX.TI.DUCATI1.VIDEO.", 21)) {
-        needDedicatedLooper = true;
+    } else {
+        AString tmp = name;
+        if (tmp.endsWith(".secure")) {
+            tmp.erase(tmp.size() - 7, 7);
+        }
+        const MediaCodecList *mcl = MediaCodecList::getInstance();
+        ssize_t codecIdx = mcl->findCodecByName(tmp.c_str());
+        if (codecIdx >= 0) {
+            Vector<AString> types;
+            if (mcl->getSupportedTypes(codecIdx, &types) == OK) {
+                for (int i = 0; i < types.size(); i++) {
+                    if (types[i].startsWith("video/")) {
+                        needDedicatedLooper = true;
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     if (needDedicatedLooper) {
@@ -380,10 +397,12 @@ status_t MediaCodec::requestIDRFrame() {
     return OK;
 }
 
+#ifdef TARGET_BOARD_FIBER
 status_t MediaCodec::setEncoderBitrate(int32_t bitrate) {
     if(mCodec == NULL) return NO_INIT;
     return mCodec->setEncoderBitrate(bitrate);
 }
+#endif
 
 void MediaCodec::requestActivityNotification(const sp<AMessage> &notify) {
     sp<AMessage> msg = new AMessage(kWhatRequestActivityNotification, id());
@@ -1494,7 +1513,8 @@ void MediaCodec::returnBuffersToCodecOnPort(int32_t portIndex) {
             info->mOwnedByClient = false;
 
             if (portIndex == kPortIndexInput) {
-                msg->setInt32("err", ERROR_END_OF_STREAM);
+                /* no error, just returning buffers */
+                msg->setInt32("err", OK);
             }
             msg->post();
         }

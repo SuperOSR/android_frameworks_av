@@ -369,17 +369,16 @@ void AMPEG4ElementaryAssembler::submitAccessUnit() {
 
     sp<ABuffer> accessUnit;
 
-    //if (mIsGeneric) //for Android NuPlayer
-    if (0) //for CedarXPlayer
-    {
+#ifndef TARGET_BOARD_FIBER
+    if (mIsGeneric) {
         accessUnit = MakeADTSCompoundFromAACFrames(
                 OMX_AUDIO_AACObjectLC - 1,
                 mSampleRateIndex,
                 mChannelConfig,
                 mPackets);
-    } else {
+    } else
+#endif
         accessUnit = MakeCompoundFromPackets(mPackets);
-    }
 
 #if 0
     printf(mAccessUnitDamaged ? "X" : ".");

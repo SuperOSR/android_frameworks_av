@@ -67,8 +67,10 @@ struct ACodec : public AHierarchicalStateMachine {
 
     void signalRequestIDRFrame();
 
+#ifdef TARGET_BOARD_FIBER
     status_t setEncoderBitrate(int32_t bitrate);
 
+#endif
     struct PortDescription : public RefBase {
         size_t countBuffers();
         IOMX::buffer_id bufferIDAt(size_t index) const;
@@ -126,7 +128,8 @@ private:
     };
 
     enum {
-        kFlagIsSecure   = 1,
+        kFlagIsSecure                                 = 1,
+        kFlagPushBlankBuffersToNativeWindowOnShutdown = 2,
     };
 
     struct BufferInfo {
@@ -140,6 +143,7 @@ private:
 
         IOMX::buffer_id mBufferID;
         Status mStatus;
+        unsigned mDequeuedAt;
 
         sp<ABuffer> mData;
         sp<GraphicBuffer> mGraphicBuffer;
@@ -176,9 +180,11 @@ private:
 
     sp<ANativeWindow> mNativeWindow;
 
+#ifdef TARGET_BOARD_FIBER
     sp<ANativeWindow> mNativeWindowSoft;
     int32_t mVideoWidth,mVideoHeight;
 
+#endif
     Vector<BufferInfo> mBuffers[2];
     bool mPortEOS[2];
     status_t mInputEOSResult;
@@ -187,7 +193,7 @@ private:
 
     bool mSentFormat;
     bool mIsEncoder;
-
+    bool mUseMetadataOnEncoderOutput;
     bool mShutdownInProgress;
 
     // If "mKeepComponentAllocated" we only transition back to Loaded state
@@ -199,12 +205,22 @@ private:
 
     bool mChannelMaskPresent;
     int32_t mChannelMask;
+    unsigned mDequeueCounter;
+    bool mStoreMetaDataInOutputBuffers;
+    int32_t mMetaDataBuffersToSubmit;
+
+    int64_t mRepeatFrameDelayUs;
 
     status_t setCyclicIntraMacroblockRefresh(const sp<AMessage> &msg, int32_t mode);
     status_t allocateBuffersOnPort(OMX_U32 portIndex);
     status_t freeBuffersOnPort(OMX_U32 portIndex);
     status_t freeBuffer(OMX_U32 portIndex, size_t i);
 
+    status_t configureOutputBuffersFromNativeWindow(
+            OMX_U32 *nBufferCount, OMX_U32 *nBufferSize,
+            OMX_U32 *nMinUndequeuedBuffers);
+    status_t allocateOutputMetaDataBuffers();
+    status_t submitOutputMetaDataBuffer();
     status_t allocateOutputBuffersFromNativeWindow();
     status_t cancelBufferToNativeWindow(BufferInfo *info);
     status_t freeOutputBuffersNotOwnedByComponent();
@@ -257,6 +273,7 @@ private:
     status_t setupMPEG4EncoderParameters(const sp<AMessage> &msg);
     status_t setupH263EncoderParameters(const sp<AMessage> &msg);
     status_t setupAVCEncoderParameters(const sp<AMessage> &msg);
+    status_t setupVPXEncoderParameters(const sp<AMessage> &msg);
 
     status_t verifySupportForProfileAndLevel(int32_t profile, int32_t level);
 

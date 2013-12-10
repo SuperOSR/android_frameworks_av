@@ -40,7 +40,11 @@ static const struct {
     { "OMX.google.amrnb.encoder", "amrnbenc", "audio_encoder.amrnb" },
     { "OMX.google.amrwb.decoder", "amrdec", "audio_decoder.amrwb" },
     { "OMX.google.amrwb.encoder", "amrwbenc", "audio_encoder.amrwb" },
+#ifdef TARGET_BOARD_FIBER
     { "OMX.google.h264.decoder", "cedar_h264dec", "video_decoder.avc" },
+#else
+    { "OMX.google.h264.decoder", "h264dec", "video_decoder.avc" },
+#endif
     { "OMX.google.h264.encoder", "h264enc", "video_encoder.avc" },
     { "OMX.google.g711.alaw.decoder", "g711dec", "audio_decoder.g711alaw" },
     { "OMX.google.g711.mlaw.decoder", "g711dec", "audio_decoder.g711mlaw" },
@@ -50,8 +54,14 @@ static const struct {
     { "OMX.google.mpeg4.encoder", "mpeg4enc", "video_encoder.mpeg4" },
     { "OMX.google.mp3.decoder", "mp3dec", "audio_decoder.mp3" },
     { "OMX.google.vorbis.decoder", "vorbisdec", "audio_decoder.vorbis" },
+#ifdef TARGET_BOARD_FIBER
     { "OMX.google.vpx.decoder", "vpxdec", "video_decoder.vpx" },
     { "OMX.google.vpx.encoder", "vpxenc", "video_encoder.vpx" },
+#else
+    { "OMX.google.vp8.decoder", "vpxdec", "video_decoder.vp8" },
+    { "OMX.google.vp9.decoder", "vpxdec", "video_decoder.vp9" },
+    { "OMX.google.vp8.encoder", "vpxenc", "video_encoder.vp8" },
+#endif
     { "OMX.google.raw.decoder", "rawdec", "audio_decoder.raw" },
     { "OMX.google.flac.encoder", "flacenc", "audio_encoder.flac" },
     { "OMX.google.gsm.decoder", "gsmdec", "audio_decoder.gsm" },

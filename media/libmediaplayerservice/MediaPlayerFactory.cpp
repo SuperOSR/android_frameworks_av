@@ -31,11 +31,12 @@
 #include "StagefrightPlayer.h"
 #include "nuplayer/NuPlayerDriver.h"
 
+#ifdef TARGET_BOARD_FIBER
 #include "CedarPlayer.h"
 #include "CedarAPlayerWrapper.h"
 #include "SimpleMediaFormatProbe.h"
-
 #include "ThumbnailPlayer/tplayer.h"
+#endif
 
 namespace android {
 
@@ -43,6 +44,7 @@ Mutex MediaPlayerFactory::sLock;
 MediaPlayerFactory::tFactoryMap MediaPlayerFactory::sFactoryMap;
 bool MediaPlayerFactory::sInitComplete = false;
 
+#ifdef TARGET_BOARD_FIBER
 // TODO: Temp hack until we can register players
 typedef struct {
     const char *extension;
@@ -210,7 +212,7 @@ player_type getPlayerType_l(const char* url)
     
     return CEDARX_PLAYER;
 }
-
+#endif
 
 status_t MediaPlayerFactory::registerFactory_l(IFactory* factory,
                                                player_type type) {
@@ -242,7 +244,11 @@ player_type MediaPlayerFactory::getDefaultPlayerType() {
         return NU_PLAYER;
     }
 
+#ifdef TARGET_BOARD_FIBER
     return CEDARX_PLAYER;
+#else
+    return STAGEFRIGHT_PLAYER;
+#endif
 }
 
 status_t MediaPlayerFactory::registerFactory(IFactory* factory,
@@ -256,10 +262,10 @@ void MediaPlayerFactory::unregisterFactory(player_type type) {
     sFactoryMap.removeItem(type);
 }
 
-#define GET_PLAYER_TYPE_IMPL_ORIGINAL(a...)                      \
+#define GET_PLAYER_TYPE_IMPL(a...)                      \
     Mutex::Autolock lock_(&sLock);                      \
                                                         \
-    player_type ret = STAGEFRIGHT_PLAYER;                    \
+    player_type ret = STAGEFRIGHT_PLAYER;               \
     float bestScore = 0.0;                              \
                                                         \
     for (size_t i = 0; i < sFactoryMap.size(); ++i) {   \
@@ -275,13 +281,13 @@ void MediaPlayerFactory::unregisterFactory(player_type type) {
     }                                                   \
                                                         \
     if (0.0 == bestScore) {                             \
-        bestScore = getDefaultPlayerType();             \
+        ret = getDefaultPlayerType();                   \
     }                                                   \
                                                         \
     return ret;
 
-
-#define GET_PLAYER_TYPE_IMPL(a...)                      \
+#ifdef TARGET_BOARD_FIBER
+#define GET_PLAYER_TYPE_IMPL_FIBER(a...)                \
     Mutex::Autolock lock_(&sLock);                      \
                                                         \
     player_type ret = CEDARX_PLAYER;                    \
@@ -304,26 +310,34 @@ void MediaPlayerFactory::unregisterFactory(player_type type) {
     }                                                   \
                                                         \
     return ret;
+#endif
 
 player_type MediaPlayerFactory::getPlayerType(const sp<IMediaPlayer>& client,
                                               const char* url) {
+#ifdef TARGET_BOARD_FIBER
     return android::getPlayerType_l(url);
+#else
+    GET_PLAYER_TYPE_IMPL(client, url);
+#endif
 }
 
 player_type MediaPlayerFactory::getPlayerType(const sp<IMediaPlayer>& client,
                                               int fd,
                                               int64_t offset,
+                                              int64_t length) {
+    GET_PLAYER_TYPE_IMPL(client, fd, offset, length);
+}
+
+#ifdef TARGET_BOARD_FIBER
+player_type MediaPlayerFactory::getPlayerType(const sp<IMediaPlayer>& client,
+                                              int fd,
+                                              int64_t offset,
                                               int64_t length,
                                               bool check_cedar) {
-    ALOGV("MediaPlayerFactory::getPlayerType: fd = 0x%x", fd);
-    
-    if (true == check_cedar)
-    {
+    if (check_cedar){
         return android::getPlayerType_l(fd, offset, length, check_cedar);
-    }
-    else
-    {
-        GET_PLAYER_TYPE_IMPL_ORIGINAL(client, fd, offset, length);
+    }else{
+        GET_PLAYER_TYPE_IMPL_FIBER(client, fd, offset, length);
     }
 }
 
@@ -538,6 +552,7 @@ class TestPlayerFactory : public MediaPlayerFactory::IFactory {
     }
 };
 
+#ifdef TARGET_BOARD_FIBER
 class CedarXPlayerFactory : public MediaPlayerFactory::IFactory {
   public:
     virtual float scoreFactory(const sp<IMediaPlayer>& client,
@@ -589,6 +604,7 @@ class TPlayerFactory : public MediaPlayerFactory::IFactory {
         return new TPlayer();
     }
 };
+#endif
 
 void MediaPlayerFactory::registerBuiltinFactories() {
     Mutex::Autolock lock_(&sLock);
@@ -596,9 +612,11 @@ void MediaPlayerFactory::registerBuiltinFactories() {
     if (sInitComplete)
         return;
 
+#ifdef TARGET_BOARD_FIBER
     registerFactory_l(new CedarXPlayerFactory(), CEDARX_PLAYER);
     registerFactory_l(new CedarAPlayerFactory(), CEDARA_PLAYER);
     registerFactory_l(new TPlayerFactory(), THUMBNAIL_PLAYER);
+#endif
     registerFactory_l(new StagefrightPlayerFactory(), STAGEFRIGHT_PLAYER);
     registerFactory_l(new NuPlayerFactory(), NU_PLAYER);
     registerFactory_l(new SonivoxPlayerFactory(), SONIVOX_PLAYER);

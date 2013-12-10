@@ -16,8 +16,15 @@ LOCAL_SRC_FILES:= \
 	ICameraRecordingProxyListener.cpp \
 	IProCameraUser.cpp \
 	IProCameraCallbacks.cpp \
+	camera2/ICameraDeviceUser.cpp \
+	camera2/ICameraDeviceCallbacks.cpp \
+	camera2/CaptureRequest.cpp \
 	ProCamera.cpp \
 	CameraBase.cpp \
+
+ifeq ($(TARGET_BOARD_PLATFORM), fiber)
+    LOCAL_CFLAGS += -DTARGET_BOARD_FIBER
+endif
 
 LOCAL_SHARED_LIBRARIES := \
 	libcutils \

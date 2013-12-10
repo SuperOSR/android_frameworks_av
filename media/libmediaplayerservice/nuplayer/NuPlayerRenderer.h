@@ -23,6 +23,7 @@
 namespace android {
 
 struct ABuffer;
+class SoftwareRenderer;
 
 struct NuPlayer::Renderer : public AHandler {
     enum Flags {
@@ -53,7 +54,10 @@ struct NuPlayer::Renderer : public AHandler {
         kWhatFlushComplete       = 'fluC',
         kWhatPosition            = 'posi',
         kWhatVideoRenderingStart = 'vdrd',
+        kWhatMediaRenderingStart = 'mdrd',
     };
+
+    void setSoftRenderer(SoftwareRenderer *softRenderer);
 
 protected:
     virtual ~Renderer();
@@ -82,6 +86,7 @@ private:
     static const int64_t kMinPositionUpdateDelayUs;
 
     sp<MediaPlayerBase::AudioSink> mAudioSink;
+    SoftwareRenderer *mSoftRenderer;
     sp<AMessage> mNotify;
     uint32_t mFlags;
     List<QueueEntry> mAudioQueue;
@@ -106,6 +111,8 @@ private:
 
     bool mPaused;
     bool mVideoRenderingStarted;
+    int32_t mVideoRenderingStartGeneration;
+    int32_t mAudioRenderingStartGeneration;
 
     int64_t mLastPositionUpdateUs;
     int64_t mVideoLateByUs;
@@ -115,6 +122,9 @@ private:
 
     void onDrainVideoQueue();
     void postDrainVideoQueue();
+
+    void prepareForMediaRenderingStart();
+    void notifyIfMediaRenderingStarted();
 
     void onQueueBuffer(const sp<AMessage> &msg);
     void onQueueEOS(const sp<AMessage> &msg);

@@ -49,8 +49,7 @@ static void AudioRecordCallbackFunction(int event, void *user, void *info) {
 
 AudioSource::AudioSource(
         audio_source_t inputSource, uint32_t sampleRate, uint32_t channelCount)
-    : mRecord(NULL),
-      mStarted(false),
+    : mStarted(false),
       mSampleRate(sampleRate),
       mPrevSampleTimeUs(0),
       mNumFramesReceived(0),
@@ -91,9 +90,6 @@ AudioSource::~AudioSource() {
     if (mStarted) {
         reset();
     }
-
-    delete mRecord;
-    mRecord = NULL;
 }
 
 status_t AudioSource::initCheck() const {
@@ -122,8 +118,7 @@ status_t AudioSource::start(MetaData *params) {
     if (err == OK) {
         mStarted = true;
     } else {
-        delete mRecord;
-        mRecord = NULL;
+        mRecord.clear();
     }
 
 
@@ -241,10 +236,10 @@ status_t AudioSource::read(
         memset((uint8_t *) buffer->data(), 0, buffer->range_length());
     } else if (elapsedTimeUs < kAutoRampStartUs + kAutoRampDurationUs) {
         int32_t autoRampDurationFrames =
-                    (kAutoRampDurationUs * mSampleRate + 500000LL) / 1000000LL;
+                    ((int64_t)kAutoRampDurationUs * mSampleRate + 500000LL) / 1000000LL; //Need type casting
 
         int32_t autoRampStartFrames =
-                    (kAutoRampStartUs * mSampleRate + 500000LL) / 1000000LL;
+                    ((int64_t)kAutoRampStartUs * mSampleRate + 500000LL) / 1000000LL; //Need type casting
 
         int32_t nFrames = mNumFramesReceived - autoRampStartFrames;
         rampVolume(nFrames, autoRampDurationFrames,

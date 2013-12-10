@@ -29,7 +29,11 @@ struct SampleIterator {
     uint32_t getDescIndex() const { return mChunkDesc; }
     off64_t getSampleOffset() const { return mCurrentSampleOffset; }
     size_t getSampleSize() const { return mCurrentSampleSize; }
+#ifdef TARGET_BOARD_FIBER
     uint64_t getSampleTime() const { return mCurrentSampleTime; }
+#else
+    uint32_t getSampleTime() const { return mCurrentSampleTime; }
+#endif
 
     status_t getSampleSizeDirect(
             uint32_t sampleIndex, size_t *size);
@@ -53,19 +57,31 @@ private:
 
     uint32_t mTimeToSampleIndex;
     uint32_t mTTSSampleIndex;
+#ifdef TARGET_BOARD_FIBER
     uint64_t mTTSSampleTime;
+#else
+    uint32_t mTTSSampleTime;
+#endif
     uint32_t mTTSCount;
     uint32_t mTTSDuration;
 
     uint32_t mCurrentSampleIndex;
     off64_t mCurrentSampleOffset;
     size_t mCurrentSampleSize;
+#ifdef TARGET_BOARD_FIBER
     uint64_t mCurrentSampleTime;
+#else
+    uint32_t mCurrentSampleTime;
+#endif
 
     void reset();
     status_t findChunkRange(uint32_t sampleIndex);
     status_t getChunkOffset(uint32_t chunk, off64_t *offset);
+#ifdef TARGET_BOARD_FIBER
     status_t findSampleTime(uint32_t sampleIndex, uint64_t *time);
+#else
+    status_t findSampleTime(uint32_t sampleIndex, uint32_t *time);
+#endif
 
     SampleIterator(const SampleIterator &);
     SampleIterator &operator=(const SampleIterator &);

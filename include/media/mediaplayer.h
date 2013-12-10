@@ -27,8 +27,9 @@
 
 #include <utils/KeyedVector.h>
 #include <utils/String8.h>
+#ifdef TARGET_BOARD_FIBER
 #include "mediaplayerinfo.h"
-
+#endif
 
 class ANativeWindow;
 
@@ -37,9 +38,11 @@ namespace android {
 class Surface;
 class IGraphicBufferProducer;
 
+#ifdef TARGET_BOARD_FIBER
 //add by Bevis, for Dlna source detector
 #define DLNA_SOURCE_DETECTOR "com.softwinner.dlnasourcedetector"
 
+#endif
 enum media_event_type {
     MEDIA_NOP               = 0, // interface test message
     MEDIA_PREPARED          = 1,
@@ -47,10 +50,17 @@ enum media_event_type {
     MEDIA_BUFFERING_UPDATE  = 3,
     MEDIA_SEEK_COMPLETE     = 4,
     MEDIA_SET_VIDEO_SIZE    = 5,
+    MEDIA_STARTED           = 6,
+    MEDIA_PAUSED            = 7,
+    MEDIA_STOPPED           = 8,
+    MEDIA_SKIPPED           = 9,
     MEDIA_TIMED_TEXT        = 99,
     MEDIA_ERROR             = 100,
     MEDIA_INFO              = 200,
+    MEDIA_SUBTITLE_DATA     = 201,
+#ifdef TARGET_BOARD_FIBER
     MEDIA_SOURCE_DETECTED	= 234,		//add by Bevis, for Dlna source detector
+#endif
 };
 
 // Generic error codes for the media player framework.  Errors are fatal, the
@@ -80,8 +90,10 @@ enum media_error_type {
     // 2xx
     MEDIA_ERROR_NOT_VALID_FOR_PROGRESSIVE_PLAYBACK = 200,
     // 3xx
+#ifdef TARGET_BOARD_FIBER
     // 9xx
     MEDIA_ERROR_OUT_OF_MEMORY = 900,
+#endif
 };
 
 
@@ -135,6 +147,7 @@ enum media_info_type {
     MEDIA_INFO_TIMED_TEXT_ERROR = 900,
 };
 
+#ifdef TARGET_BOARD_FIBER
 /* add by Gary. start {{----------------------------------- */
 /**
 *  screen name
@@ -142,6 +155,7 @@ enum media_info_type {
 #define MASTER_SCREEN        0
 #define SLAVE_SCREEN         1
 /* add by Gary. end   -----------------------------------}} */
+#endif
 
 enum media_player_states {
     MEDIA_PLAYER_STATE_ERROR        = 0,
@@ -187,6 +201,7 @@ enum media_track_type {
     MEDIA_TRACK_TYPE_VIDEO = 1,
     MEDIA_TRACK_TYPE_AUDIO = 2,
     MEDIA_TRACK_TYPE_TIMEDTEXT = 3,
+    MEDIA_TRACK_TYPE_SUBTITLE = 4,
 };
 
 // ----------------------------------------------------------------------------
@@ -232,8 +247,12 @@ public:
             bool            isLooping();
             status_t        setVolume(float leftVolume, float rightVolume);
             void            notify(int msg, int ext1, int ext2, const Parcel *obj = NULL);
-    static  sp<IMemory>     decode(const char* url, uint32_t *pSampleRate, int* pNumChannels, audio_format_t* pFormat);
-    static  sp<IMemory>     decode(int fd, int64_t offset, int64_t length, uint32_t *pSampleRate, int* pNumChannels, audio_format_t* pFormat);
+    static  status_t        decode(const char* url, uint32_t *pSampleRate, int* pNumChannels,
+                                   audio_format_t* pFormat,
+                                   const sp<IMemoryHeap>& heap, size_t *pSize);
+    static  status_t        decode(int fd, int64_t offset, int64_t length, uint32_t *pSampleRate,
+                                   int* pNumChannels, audio_format_t* pFormat,
+                                   const sp<IMemoryHeap>& heap, size_t *pSize);
             status_t        invoke(const Parcel& request, Parcel *reply);
             status_t        setMetadataFilter(const Parcel& filter);
             status_t        getMetadata(bool update_only, bool apply_filter, Parcel *metadata);
@@ -245,6 +264,7 @@ public:
             status_t        getParameter(int key, Parcel* reply);
             status_t        setRetransmitEndpoint(const char* addrString, uint16_t port);
             status_t        setNextMediaPlayer(const sp<MediaPlayer>& player);
+#ifdef TARGET_BOARD_FIBER
             /* add by Gary. start {{----------------------------------- */
             static  status_t        setScreen(int screen);
             static  status_t        getScreen(int *screen);
@@ -330,6 +350,8 @@ public:
             status_t        generalInterface(int cmd, int int1, int int2, int int3, void *p);
     static  status_t        generalGlobalInterface(int cmd, int int1, int int2, int int3, void *p);
     /* add by Gary. end   -----------------------------------}} */
+#endif
+
             status_t updateProxyConfig(
                     const char *host, int32_t port, const char *exclusionList);
 
@@ -364,6 +386,7 @@ private:
     float                       mSendLevel;
     struct sockaddr_in          mRetransmitEndpoint;
     bool                        mRetransmitEndpointValid;
+#ifdef TARGET_BOARD_FIBER
     /* add by Gary. start {{----------------------------------- */
     /* 2011-9-28 16:28:24 */
     /* save properties before creating the real player */
@@ -378,6 +401,7 @@ private:
     int                         mTrackIndex;
     int                         mMuteMode;   // 2012-03-07, set audio channel mute
    /* add by Gary. end   -----------------------------------}} */
+#endif
 };
 
 }; // namespace android

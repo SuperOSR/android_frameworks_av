@@ -9,11 +9,16 @@ LOCAL_SRC_FILES:=                     \
         SimpleSoftOMXComponent.cpp    \
         SoftOMXComponent.cpp          \
         SoftOMXPlugin.cpp             \
+        SoftVideoDecoderOMXComponent.cpp \
 
 LOCAL_C_INCLUDES += \
         $(TOP)/frameworks/av/media/libstagefright \
         $(TOP)/frameworks/native/include/media/hardware \
         $(TOP)/frameworks/native/include/media/openmax
+
+ifeq ($(TARGET_BOARD_PLATFORM), fiber)
+    LOCAL_CFLAGS += -DTARGET_BOARD_FIBER
+endif
 
 LOCAL_SHARED_LIBRARIES :=               \
         libbinder                       \

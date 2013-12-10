@@ -41,7 +41,9 @@ enum {
     INFO_FORMAT_CHANGED    = MEDIA_ERROR_BASE - 12,
     INFO_DISCONTINUITY     = MEDIA_ERROR_BASE - 13,
     INFO_OUTPUT_BUFFERS_CHANGED = MEDIA_ERROR_BASE - 14,
+#ifdef TARGET_BOARD_FIBER
     INFO_VENDOR_LEAF_ATOM  = -1500,
+#endif
 
     // The following constant values should be in sync with
     // drm/drm_framework_common.h
@@ -57,13 +59,10 @@ enum {
     ERROR_DRM_TAMPER_DETECTED               = DRM_ERROR_BASE - 7,
     ERROR_DRM_NOT_PROVISIONED               = DRM_ERROR_BASE - 8,
     ERROR_DRM_DEVICE_REVOKED                = DRM_ERROR_BASE - 9,
+    ERROR_DRM_RESOURCE_BUSY                 = DRM_ERROR_BASE - 10,
 
     ERROR_DRM_VENDOR_MAX                    = DRM_ERROR_BASE - 500,
     ERROR_DRM_VENDOR_MIN                    = DRM_ERROR_BASE - 999,
-
-    // Deprecated
-    ERROR_DRM_WV_VENDOR_MAX                 = ERROR_DRM_VENDOR_MAX,
-    ERROR_DRM_WV_VENDOR_MIN                 = ERROR_DRM_VENDOR_MIN,
 
     // Heartbeat Error Codes
     HEARTBEAT_ERROR_BASE = -3000,

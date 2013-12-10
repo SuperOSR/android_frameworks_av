@@ -57,6 +57,7 @@ enum {
     SET_RETRANSMIT_ENDPOINT,
     GET_RETRANSMIT_ENDPOINT,
     SET_NEXT_PLAYER,
+#ifdef TARGET_BOARD_FIBER
     /* add by Gary. start {{----------------------------------- */
     /* 2011-9-15 10:51:10 */
     /* expend interfaces about subtitle, track and so on */
@@ -115,6 +116,7 @@ enum {
     /* add by Gary. end   -----------------------------------}} */
 
     SET_DATA_SOURCE_STREAM2,
+#endif
 };
 
 class BpMediaPlayer: public BpInterface<IMediaPlayer>
@@ -171,6 +173,7 @@ public:
         return reply.readInt32();
     }
 
+#ifdef TARGET_BOARD_FIBER
     status_t setDataSource(const sp<IStreamSource> &source, int type) {
 		Parcel data, reply;
 		data.writeInterfaceToken(IMediaPlayer::getInterfaceDescriptor());
@@ -180,6 +183,7 @@ public:
 		return reply.readInt32();
 	}
 
+#endif
     // pass the buffered IGraphicBufferProducer to the media player service
     status_t setVideoSurfaceTexture(const sp<IGraphicBufferProducer>& bufferProducer)
     {
@@ -406,6 +410,7 @@ public:
         return err;
     }
 
+#ifdef TARGET_BOARD_FIBER
     /* add by Gary. start {{----------------------------------- */
     /* 2011-9-14 14:27:12 */
     /* expend interfaces about subtitle, track and so on */
@@ -801,6 +806,7 @@ public:
         return ret;
     }
     /* add by Gary. end   -----------------------------------}} */
+#endif
 };
 
 IMPLEMENT_META_INTERFACE(MediaPlayer, "android.media.IMediaPlayer");
@@ -844,6 +850,7 @@ status_t BnMediaPlayer::onTransact(
             reply->writeInt32(setDataSource(source));
             return NO_ERROR;
         }
+#ifdef TARGET_BOARD_FIBER
         case SET_DATA_SOURCE_STREAM2: {
 			CHECK_INTERFACE(IMediaPlayer, data, reply);
 			sp<IStreamSource> source =
@@ -852,6 +859,7 @@ status_t BnMediaPlayer::onTransact(
 			reply->writeInt32(setDataSource(source, type));
 			return NO_ERROR;
 		}
+#endif
         case SET_VIDEO_SURFACETEXTURE: {
             CHECK_INTERFACE(IMediaPlayer, data, reply);
             sp<IGraphicBufferProducer> bufferProducer =
@@ -1008,6 +1016,7 @@ status_t BnMediaPlayer::onTransact(
 
             return NO_ERROR;
         } break;
+#ifdef TARGET_BOARD_FIBER
         /* add by Gary. start {{----------------------------------- */
         /* 2011-9-15 13:06:54 */
         /* expend interfaces about subtitle, track and so on */
@@ -1316,6 +1325,7 @@ status_t BnMediaPlayer::onTransact(
             return NO_ERROR;
         } break;
         /* add by Gary. end   -----------------------------------}} */
+#endif
         default:
             return BBinder::onTransact(code, data, reply, flags);
     }

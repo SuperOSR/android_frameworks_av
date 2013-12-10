@@ -1,8 +1,12 @@
 LOCAL_PATH:= $(call my-dir)
 include $(CLEAR_VARS)
 
-#include frameworks/av/media/libstagefright/codecs/common/Config.mk
+ifeq ($(TARGET_BOARD_PLATFORM), fiber)
 include $(LOCAL_PATH)/../CedarX-Projects/Config.mk
+LOCAL_CFLAGS += -DTARGET_BOARD_FIBER
+else
+include frameworks/av/media/libstagefright/codecs/common/Config.mk
+endif
 
 LOCAL_SRC_FILES:=                         \
         ACodec.cpp                        \
@@ -63,6 +67,7 @@ LOCAL_C_INCLUDES:= \
         $(TOP)/frameworks/av/include/media/stagefright/timedtext \
         $(TOP)/frameworks/native/include/media/hardware \
         $(TOP)/frameworks/native/include/media/openmax \
+        $(TOP)/frameworks/native/services/connectivitymanager \
         $(TOP)/external/flac/include \
         $(TOP)/external/tremolo \
         $(TOP)/external/openssl/include \
@@ -70,7 +75,7 @@ LOCAL_C_INCLUDES:= \
 LOCAL_SHARED_LIBRARIES := \
         libbinder \
         libcamera_client \
-        libcrypto \
+        libconnectivitymanager \
         libcutils \
         libdl \
         libdrmframework \
@@ -89,6 +94,7 @@ LOCAL_SHARED_LIBRARIES := \
         libutils \
         libvorbisidec \
         libz \
+        libpowermanager
 
 LOCAL_STATIC_LIBRARIES := \
         libstagefright_color_conversion \
@@ -100,14 +106,16 @@ LOCAL_STATIC_LIBRARIES := \
         libstagefright_mpeg2ts \
         libstagefright_id3 \
         libFLAC \
+        libmedia_helper
 
+ifeq ($(TARGET_BOARD_PLATFORM), fiber)
 ifeq ($(CEDARX_DEBUG_FRAMEWORK),Y)
 LOCAL_STATIC_LIBRARIES += libstagefright_httplive_opt
 else
 LOCAL_LDFLAGS += \
 	$(CEDARX_TOP)/../CedarAndroidLib/$(CEDARX_PREBUILD_LIB_PATH)/libstagefright_httplive_opt.a
 endif
-      
+endif
 
 LOCAL_SRC_FILES += \
         chromium_http_stub.cpp

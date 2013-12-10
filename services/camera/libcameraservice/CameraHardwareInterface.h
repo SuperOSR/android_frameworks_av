@@ -381,6 +381,7 @@ public:
         return INVALID_OPERATION;
     }
 
+#ifdef TARGET_BOARD_FIBER
 	/**
      * set file descriptor to camera hAL for writing file
      * on android4.2 by fuqiang.
@@ -392,6 +393,7 @@ public:
             return mDevice->ops->set_fd(mDevice, fd);
         return INVALID_OPERATION;
     }
+#endif
 
     /** Return the camera parameters. */
     CameraParameters getParameters() const

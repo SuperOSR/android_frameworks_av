@@ -67,7 +67,9 @@ SoftwareRenderer::SoftwareRenderer(
     switch (mColorFormat) {
         case OMX_COLOR_FormatYUV420Planar:
         case OMX_TI_COLOR_FormatYUV420PackedSemiPlanar:
+#ifdef TARGET_BOARD_FIBER
         case HAL_PIXEL_FORMAT_YV12:
+#endif
         {
             if (!runningInEmulator()) {
                 halFormat = HAL_PIXEL_FORMAT_YV12;
@@ -192,14 +194,15 @@ void SoftwareRenderer::render(
             dst_u += dst_c_stride;
             dst_v += dst_c_stride;
         }
+#ifdef TARGET_BOARD_FIBER
     }else if (mColorFormat == HAL_PIXEL_FORMAT_YV12){
         size_t dst_y_size = buf->stride * buf->height;
         size_t dst_c_stride = ALIGN(buf->stride / 2, 16);
         size_t dst_c_size = dst_c_stride * buf->height / 2;
         
         memcpy(dst, data, dst_y_size + dst_c_size*2);
-    } 
-    else {
+#endif
+    } else {
         CHECK_EQ(mColorFormat, OMX_TI_COLOR_FormatYUV420PackedSemiPlanar);
 
         const uint8_t *src_y =

@@ -23,6 +23,7 @@
 #include <utils/List.h>
 #include <utils/RefBase.h>
 #include <utils/threads.h>
+#include <powermanager/IPowerManager.h>
 
 namespace android {
 
@@ -55,6 +56,21 @@ struct TimedEventQueue {
 
         Event(const Event &);
         Event &operator=(const Event &);
+    };
+
+    class PMDeathRecipient : public IBinder::DeathRecipient {
+    public:
+                    PMDeathRecipient(TimedEventQueue *queue) : mQueue(queue) {}
+        virtual     ~PMDeathRecipient() {}
+
+        // IBinder::DeathRecipient
+        virtual     void        binderDied(const wp<IBinder>& who);
+
+    private:
+                    PMDeathRecipient(const PMDeathRecipient&);
+                    PMDeathRecipient& operator = (const PMDeathRecipient&);
+
+                    TimedEventQueue *mQueue;
     };
 
     TimedEventQueue();
@@ -96,10 +112,13 @@ struct TimedEventQueue {
 
     static int64_t getRealTimeUs();
 
+    void clearPowerManager();
+
 private:
     struct QueueItem {
         sp<Event> event;
         int64_t realtime_us;
+        bool has_wakelock;
     };
 
     struct StopEvent : public TimedEventQueue::Event {
@@ -118,10 +137,18 @@ private:
     bool mRunning;
     bool mStopped;
 
+    sp<IPowerManager>       mPowerManager;
+    sp<IBinder>             mWakeLockToken;
+    const sp<PMDeathRecipient> mDeathRecipient;
+    uint32_t                mWakeLockCount;
+
     static void *ThreadWrapper(void *me);
     void threadEntry();
 
     sp<Event> removeEventFromQueue_l(event_id id);
+
+    void acquireWakeLock_l();
+    void releaseWakeLock_l(bool force = false);
 
     TimedEventQueue(const TimedEventQueue &);
     TimedEventQueue &operator=(const TimedEventQueue &);

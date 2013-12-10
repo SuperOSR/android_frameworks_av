@@ -3,10 +3,8 @@ LOCAL_PATH:= $(call my-dir)
 include $(CLEAR_VARS)
 
 LOCAL_SRC_FILES:= \
-        ANetworkSession.cpp             \
         MediaSender.cpp                 \
         Parameters.cpp                  \
-        ParsedMessage.cpp               \
         rtp/RTPSender.cpp               \
         source/Converter.cpp            \
         source/MediaPuller.cpp          \
@@ -15,11 +13,16 @@ LOCAL_SRC_FILES:= \
         source/TSPacketizer.cpp         \
         source/WifiDisplaySource.cpp    \
         VideoFormats.cpp                \
+
+ifeq ($(TARGET_BOARD_PLATFORM), fiber)
+    LOCAL_CFLAGS += -DTARGET_BOARD_FIBER
+    LOCAL_SRC_FILES += \
         wfdsink/XLinearRegression.cpp   \
         wfdsink/RTPSource.cpp           \
         wfdsink/RTPJitterBuffer.cpp     \
         wfdsink/WfdSink.cpp             \
         wfdsink/MiracastSink.cpp        \
+endif
 
 LOCAL_C_INCLUDES:= \
         $(TOP)/frameworks/av/media/libstagefright \
@@ -58,26 +61,3 @@ LOCAL_MODULE:= libstagefright_wfd
 LOCAL_MODULE_TAGS:= optional
 
 include $(BUILD_SHARED_LIBRARY)
-
-################################################################################
-
-include $(CLEAR_VARS)
-
-LOCAL_SRC_FILES:= \
-        wfd.cpp                 \
-
-LOCAL_SHARED_LIBRARIES:= \
-        libbinder                       \
-        libgui                          \
-        libmedia                        \
-        libstagefright                  \
-        libstagefright_foundation       \
-        libstagefright_wfd              \
-        libutils                        \
-        liblog                          \
-
-LOCAL_MODULE:= wfd
-
-LOCAL_MODULE_TAGS := debug
-
-include $(BUILD_EXECUTABLE)

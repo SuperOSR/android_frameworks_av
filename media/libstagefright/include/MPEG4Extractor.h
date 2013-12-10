@@ -81,8 +81,11 @@ private:
 
     sp<DataSource> mDataSource;
     status_t mInitCheck;
+#ifdef TARGET_BOARD_FIBER
     bool mIsQtff;
+#endif
     bool mHasVideo;
+    uint32_t mHeaderTimescale;
 
     Track *mFirstTrack, *mLastTrack;
 

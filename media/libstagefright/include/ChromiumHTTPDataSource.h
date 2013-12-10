@@ -53,6 +53,7 @@ struct ChromiumHTTPDataSource : public HTTPBase {
 
     virtual status_t reconnectAtOffset(off64_t offset);
 
+#ifdef TARGET_BOARD_FIBER
     //* add by chenxiaochuan for QQ live stream.
     virtual AString getRedirectUri(bool getAll = false);
 
@@ -73,6 +74,10 @@ struct ChromiumHTTPDataSource : public HTTPBase {
 
     virtual void setTimeoutLastUs(int64_t timeoutUs);
     //* end.
+#endif
+    static status_t UpdateProxyConfig(
+            const char *host, int32_t port, const char *exclusionList);
+
 protected:
     virtual ~ChromiumHTTPDataSource();
 
@@ -87,11 +92,13 @@ private:
         DISCONNECTING
     };
 
+#ifdef TARGET_BOARD_FIBER
     enum {
     	//10s
     	kDefaultReadTimeOutUs = 30*1000*1000,
     };
 
+#endif
     const uint32_t mFlags;
 
     mutable Mutex mLock;
@@ -104,12 +111,13 @@ private:
     AString mURI;
     KeyedVector<String8, String8> mHeaders;
 
+#ifdef TARGET_BOARD_FIBER
     AString mRedirectHost;
     AString mRedirectPort;
     AString mRedirectPath;
     AString mRedirectURI;
     bool    mIsRedirected;
-
+#endif
     off64_t mCurrentOffset;
 
     // Any connection error or the result of a read operation
@@ -123,9 +131,10 @@ private:
     sp<DecryptHandle> mDecryptHandle;
     DrmManagerClient *mDrmManagerClient;
 
+#ifdef TARGET_BOARD_FIBER
     int64_t mReadTimeoutUs;
     bool mForceDisconnect;
-
+#endif
     void disconnect_l();
 
     status_t connect_l(

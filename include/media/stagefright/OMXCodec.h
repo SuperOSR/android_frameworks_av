@@ -248,7 +248,11 @@ private:
             int32_t numChannels, int32_t sampleRate, int32_t bitRate,
             int32_t aacProfile, bool isADTS);
 
+#ifdef TARGET_BOARD_FIBER
     void setG711Format(int32_t numChannels, int32_t sampleRate);
+#else
+    void setG711Format(int32_t numChannels);
+#endif
 
     status_t setVideoPortFormatType(
             OMX_U32 portIndex,
@@ -361,9 +365,14 @@ private:
 };
 
 struct CodecCapabilities {
+    enum {
+        kFlagSupportsAdaptivePlayback = 1 << 0,
+    };
+
     String8 mComponentName;
     Vector<CodecProfileLevel> mProfileLevels;
     Vector<OMX_U32> mColorFormats;
+    uint32_t mFlags;
 };
 
 // Return a vector of componentNames with supported profile/level pairs

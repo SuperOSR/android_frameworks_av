@@ -68,13 +68,18 @@ static void addBatteryData(uint32_t params) {
 StagefrightRecorder::StagefrightRecorder()
     : mWriter(NULL),
       mOutputFd(-1),
+#ifdef TARGET_BOARD_FIBER
       mOutputPath(NULL),
+#endif
       mAudioSource(AUDIO_SOURCE_CNT),
       mVideoSource(VIDEO_SOURCE_LIST_END),
-      mStarted(false), mSurfaceMediaSource(NULL),
+#ifdef TARGET_BOARD_FIBER
       mpCedarXRecorder(NULL),
       mbHWEncoder(false),
-      mCaptureTimeLapse(false) {
+#endif
+      mCaptureTimeLapse(false),
+      mStarted(false),
+      mSurfaceMediaSource(NULL) {
 
     ALOGV("Constructor");
     reset();
@@ -83,6 +88,7 @@ StagefrightRecorder::StagefrightRecorder()
 StagefrightRecorder::~StagefrightRecorder() {
     ALOGV("Destructor");
     stop();
+#ifdef TARGET_BOARD_FIBER
     if(mOutputPath != NULL) {
     	free(mOutputPath);
     	mOutputPath = NULL;
@@ -94,11 +100,12 @@ StagefrightRecorder::~StagefrightRecorder() {
 		mpCedarXRecorder = NULL;
 	}
 	mbHWEncoder = false;
+#endif
 }
 
 status_t StagefrightRecorder::init() {
     ALOGV("init");
-
+#ifdef TARGET_BOARD_FIBER
     if (mpCedarXRecorder != NULL)
 	{
 		ALOGW("mpCedarXRecorder should be NULL at first\n");
@@ -113,6 +120,7 @@ status_t StagefrightRecorder::init() {
 		return UNKNOWN_ERROR;
 	}
     
+#endif
     return OK;
 }
 
@@ -124,6 +132,7 @@ sp<IGraphicBufferProducer> StagefrightRecorder::querySurfaceMediaSource() const 
     return mSurfaceMediaSource->getBufferQueue();
 }
 
+#ifdef TARGET_BOARD_FIBER
 status_t StagefrightRecorder::queueBuffer(int index, int addr_y, int addr_c, int64_t timestamp)
 {
     ALOGV("queueBuffer");
@@ -145,6 +154,7 @@ sp<IMemory> StagefrightRecorder::getOneBsFrame(int mode)
 
     return NULL;
 }
+#endif
 
 status_t StagefrightRecorder::setAudioSource(audio_source_t as) {
     ALOGV("setAudioSource: %d", as);
@@ -223,7 +233,11 @@ status_t StagefrightRecorder::setVideoEncoder(video_encoder ve) {
     }
 
     if (ve == VIDEO_ENCODER_DEFAULT) {
+#ifdef TARGET_BOARD_FIBER
         mVideoEncoder = VIDEO_ENCODER_H264;
+#else
+        mVideoEncoder = VIDEO_ENCODER_H263;
+#endif
     } else {
         mVideoEncoder = ve;
     }
@@ -284,13 +298,17 @@ status_t StagefrightRecorder::setPreviewSurface(const sp<IGraphicBufferProducer>
 }
 
 status_t StagefrightRecorder::setOutputFile(const char *path) {
+#ifdef TARGET_BOARD_FIBER
     ALOGI("setOutputFile(const char*) must not be called");
+    mOutputPath = strdup(path);
+    return OK;
+#else
+    ALOGE("setOutputFile(const char*) must not be called");
     // We don't actually support this at all, as the media_server process
     // no longer has permissions to create files.
 
-    mOutputPath = strdup(path);
-    
-    return OK;
+    return -EPERM;
+#endif
 }
 
 status_t StagefrightRecorder::setOutputFile(int fd, int64_t offset, int64_t length) {
@@ -792,7 +810,7 @@ status_t StagefrightRecorder::setClientName(const String16& clientName) {
 
 status_t StagefrightRecorder::prepare() {
     status_t error = OK;	
-
+#ifdef TARGET_BOARD_FIBER
 	// do not care audio encoder format
 	if(mVideoEncoder == VIDEO_ENCODER_H264
 		&& mpCedarXRecorder != NULL)
@@ -808,7 +826,7 @@ status_t StagefrightRecorder::prepare() {
 			error = mpCedarXRecorder->setCamera(mCamera, mCameraProxy);
 			if (error != OK)
 			{
-				goto ERROR;
+				return error;
 			}
 		}
 		else if (mVideoSource == VIDEO_SOURCE_PUSH_BUFFER) {
@@ -823,7 +841,7 @@ status_t StagefrightRecorder::prepare() {
 			error = mpCedarXRecorder->setMediaSource(mediaSource, CDX_RECORDER_MEDIATYPE_VIDEO);
 			if (error != OK)
 			{
-				goto ERROR;
+				return error;
 			}
 		} else {
 		    return INVALID_OPERATION;
@@ -871,24 +889,23 @@ status_t StagefrightRecorder::prepare() {
 		mpCedarXRecorder->setParamTimeBetweenTimeLapseFrameCapture(mTimeBetweenTimeLapseFrameCaptureUs);
 
 		error = mpCedarXRecorder->prepare();
-		if (error != OK)
-		{
-			goto ERROR;
-		}
 	}
-
-ERROR:
+#endif
     return error;
 }
 
 status_t StagefrightRecorder::start() {
+#ifndef TARGET_BOARD_FIBER
+    CHECK_GE(mOutputFd, 0);
+#endif
     status_t status = OK;
 
-	if (mbHWEncoder)
-	{
+#ifdef TARGET_BOARD_FIBER
+	if (mbHWEncoder){
 		status = mpCedarXRecorder->start();
 		goto HWENC_BATTERY;
 	}
+#endif
 
     // Get UID here for permission checking
     mClientUid = IPCThreadState::self()->getCallingUid();
@@ -928,8 +945,9 @@ status_t StagefrightRecorder::start() {
             break;
     }
 
+#ifdef TARGET_BOARD_FIBER
 HWENC_BATTERY:
-
+#endif
     if ((status == OK) && (!mStarted)) {
         mStarted = true;
 
@@ -1235,7 +1253,22 @@ void StagefrightRecorder::clipVideoFrameWidth() {
     }
 }
 
-status_t StagefrightRecorder::checkVideoEncoderCapabilities() {
+status_t StagefrightRecorder::checkVideoEncoderCapabilities(
+        bool *supportsCameraSourceMetaDataMode) {
+    /* hardware codecs must support camera source meta data mode */
+    Vector<CodecCapabilities> codecs;
+    OMXClient client;
+    CHECK_EQ(client.connect(), (status_t)OK);
+    QueryCodecs(
+            client.interface(),
+            (mVideoEncoder == VIDEO_ENCODER_H263 ? MEDIA_MIMETYPE_VIDEO_H263 :
+             mVideoEncoder == VIDEO_ENCODER_MPEG_4_SP ? MEDIA_MIMETYPE_VIDEO_MPEG4 :
+             mVideoEncoder == VIDEO_ENCODER_H264 ? MEDIA_MIMETYPE_VIDEO_AVC : ""),
+            false /* decoder */, true /* hwCodec */, &codecs);
+    *supportsCameraSourceMetaDataMode = codecs.size() > 0;
+    ALOGV("encoder %s camera source meta-data mode",
+            *supportsCameraSourceMetaDataMode ? "supports" : "DOES NOT SUPPORT");
+
     if (!mCaptureTimeLapse) {
         // Dont clip for time lapse capture as encoder will have enough
         // time to encode because of slow capture rate of time lapse.
@@ -1453,7 +1486,9 @@ status_t StagefrightRecorder::setupSurfaceMediaSource() {
 status_t StagefrightRecorder::setupCameraSource(
         sp<CameraSource> *cameraSource) {
     status_t err = OK;
-    if ((err = checkVideoEncoderCapabilities()) != OK) {
+    bool encoderSupportsCameraSourceMetaDataMode;
+    if ((err = checkVideoEncoderCapabilities(
+                &encoderSupportsCameraSourceMetaDataMode)) != OK) {
         return err;
     }
     Size videoSize;
@@ -1469,13 +1504,14 @@ status_t StagefrightRecorder::setupCameraSource(
         mCameraSourceTimeLapse = CameraSourceTimeLapse::CreateFromCamera(
                 mCamera, mCameraProxy, mCameraId, mClientName, mClientUid,
                 videoSize, mFrameRate, mPreviewSurface,
-                mTimeBetweenTimeLapseFrameCaptureUs);
+                mTimeBetweenTimeLapseFrameCaptureUs,
+                encoderSupportsCameraSourceMetaDataMode);
         *cameraSource = mCameraSourceTimeLapse;
     } else {
         *cameraSource = CameraSource::CreateFromCamera(
                 mCamera, mCameraProxy, mCameraId, mClientName, mClientUid,
                 videoSize, mFrameRate,
-                mPreviewSurface, true /*storeMetaDataInVideoBuffers*/);
+                mPreviewSurface, encoderSupportsCameraSourceMetaDataMode);
     }
     mCamera.clear();
     mCameraProxy.clear();
@@ -1726,20 +1762,20 @@ status_t StagefrightRecorder::startMPEG4Recording() {
 
 status_t StagefrightRecorder::pause() {
     ALOGV("pause");
-
-    if (mbHWEncoder)
-	{
+#ifdef TARGET_BOARD_FIBER
+    if (mbHWEncoder){
 		mpCedarXRecorder->pause();
 		goto HWENC_BATTERY;
 	}
-    
+#endif
     if (mWriter == NULL) {
         return UNKNOWN_ERROR;
     }
     mWriter->pause();
 
+#ifdef TARGET_BOARD_FIBER
 HWENC_BATTERY:
-
+#endif
     if (mStarted) {
         mStarted = false;
 
@@ -1767,19 +1803,20 @@ status_t StagefrightRecorder::stop() {
         mCameraSourceTimeLapse = NULL;
     }
 
-    if (mbHWEncoder)
-	{
+#ifdef TARGET_BOARD_FIBER
+    if (mbHWEncoder){
 		err = mpCedarXRecorder->stop();
 		goto HWENC_BATTERY;
 	}
-
+#endif
     if (mWriter != NULL) {
         err = mWriter->stop();
         mWriter.clear();
     }
 
+#ifdef TARGET_BOARD_FIBER
 HWENC_BATTERY:
-
+#endif
     if (mOutputFd >= 0) {
         ::close(mOutputFd);
         mOutputFd = -1;
@@ -1865,11 +1902,11 @@ status_t StagefrightRecorder::getMaxAmplitude(int *max) {
         return BAD_VALUE;
     }
 
-    if (mbHWEncoder)
-	{
+#ifdef TARGET_BOARD_FIBER
+    if (mbHWEncoder){
 		return mpCedarXRecorder->getMaxAmplitude(max);
     }
-
+#endif
     if (mAudioSourceNode != 0) {
         *max = mAudioSourceNode->getMaxAmplitude();
     } else {

@@ -57,8 +57,10 @@ struct MediaRecorderBase {
     virtual status_t getMaxAmplitude(int *max) = 0;
     virtual status_t dump(int fd, const Vector<String16>& args) const = 0;
     virtual sp<IGraphicBufferProducer> querySurfaceMediaSource() const = 0;
+#ifdef TARGET_BOARD_FIBER
     virtual status_t queueBuffer(int index, int addr_y, int addr_c, int64_t timestamp) = 0;
     virtual sp<IMemory> getOneBsFrame(int mode) = 0;
+#endif
 
 private:
     MediaRecorderBase(const MediaRecorderBase &);

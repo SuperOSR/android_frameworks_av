@@ -343,6 +343,7 @@ MPEG4Extractor::MPEG4Extractor(const sp<DataSource> &source)
       mDataSource(source),
       mInitCheck(NO_INIT),
       mHasVideo(false),
+      mHeaderTimescale(0),
       mFirstTrack(NULL),
       mLastTrack(NULL),
       mFileMetaData(new MetaData),
@@ -444,7 +445,11 @@ sp<MetaData> MPEG4Extractor::getTrackMetaData(
                 }
             } else {
                 uint32_t sampleIndex;
+#ifdef TARGET_BOARD_FIBER
                 uint64_t sampleTime;
+#else
+                uint32_t sampleTime;
+#endif
                 if (track->sampleTable->findThumbnailSample(&sampleIndex) == OK
                         && track->sampleTable->getMetaDataForSample(
                             sampleIndex, NULL /* offset */, NULL /* size */,
@@ -681,8 +686,9 @@ status_t MPEG4Extractor::parseDrmSINF(off64_t *offset, off64_t data_offset) {
             }
             sinf->len = dataLen - 3;
             sinf->IPMPData = new char[sinf->len];
+            data_offset += 2;
 
-            if (mDataSource->readAt(data_offset + 2, sinf->IPMPData, sinf->len) < sinf->len) {
+            if (mDataSource->readAt(data_offset, sinf->IPMPData, sinf->len) < sinf->len) {
                 return ERROR_IO;
             }
             data_offset += sinf->len;
@@ -819,6 +825,7 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
         case FOURCC('i', 'l', 's', 't'):
         case FOURCC('s', 'i', 'n', 'f'):
         case FOURCC('s', 'c', 'h', 'i'):
+        case FOURCC('e', 'd', 't', 's'):
         {
             if (chunk_type == FOURCC('s', 't', 'b', 'l')) {
                 ALOGV("sampleTable chunk is %d bytes long.", (size_t)chunk_size);
@@ -860,6 +867,7 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
             off64_t stop_offset = *offset + chunk_size;
             *offset = data_offset;
             while (*offset < stop_offset) {
+#ifdef TARGET_BOARD_FIBER
                 if (*offset < stop_offset-8) {
                     status_t err = parseChunk(offset, depth + 1);
                     if (err != OK) {
@@ -867,6 +875,11 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
                     }
                 }else {
                     *offset = stop_offset;
+#else
+                status_t err = parseChunk(offset, depth + 1);
+                if (err != OK) {
+                    return err;
+#endif
                 }
             }
 
@@ -907,6 +920,74 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
                     return OK;
                 }
             }
+            break;
+        }
+
+        case FOURCC('e', 'l', 's', 't'):
+        {
+            // See 14496-12 8.6.6
+            uint8_t version;
+            if (mDataSource->readAt(data_offset, &version, 1) < 1) {
+                return ERROR_IO;
+            }
+
+            uint32_t entry_count;
+            if (!mDataSource->getUInt32(data_offset + 4, &entry_count)) {
+                return ERROR_IO;
+            }
+
+            if (entry_count != 1) {
+                // we only support a single entry at the moment, for gapless playback
+                ALOGW("ignoring edit list with %d entries", entry_count);
+            } else if (mHeaderTimescale == 0) {
+                ALOGW("ignoring edit list because timescale is 0");
+            } else {
+                off64_t entriesoffset = data_offset + 8;
+                uint64_t segment_duration;
+                int64_t media_time;
+
+                if (version == 1) {
+                    if (!mDataSource->getUInt64(entriesoffset, &segment_duration) ||
+                            !mDataSource->getUInt64(entriesoffset + 8, (uint64_t*)&media_time)) {
+                        return ERROR_IO;
+                    }
+                } else if (version == 0) {
+                    uint32_t sd;
+                    int32_t mt;
+                    if (!mDataSource->getUInt32(entriesoffset, &sd) ||
+                            !mDataSource->getUInt32(entriesoffset + 4, (uint32_t*)&mt)) {
+                        return ERROR_IO;
+                    }
+                    segment_duration = sd;
+                    media_time = mt;
+                } else {
+                    return ERROR_IO;
+                }
+
+                uint64_t halfscale = mHeaderTimescale / 2;
+                segment_duration = (segment_duration * 1000000 + halfscale)/ mHeaderTimescale;
+                media_time = (media_time * 1000000 + halfscale) / mHeaderTimescale;
+
+                int64_t duration;
+                int32_t samplerate;
+                if (mLastTrack->meta->findInt64(kKeyDuration, &duration) &&
+                        mLastTrack->meta->findInt32(kKeySampleRate, &samplerate)) {
+
+                    int64_t delay = (media_time  * samplerate + 500000) / 1000000;
+                    mLastTrack->meta->setInt32(kKeyEncoderDelay, delay);
+
+                    int64_t paddingus = duration - (segment_duration + media_time);
+                    if (paddingus < 0) {
+                        // track duration from media header (which is what kKeyDuration is) might
+                        // be slightly shorter than the segment duration, which would make the
+                        // padding negative. Clamp to zero.
+                        paddingus = 0;
+                    }
+                    int64_t paddingsamples = (paddingus * samplerate + 500000) / 1000000;
+                    mLastTrack->meta->setInt32(kKeyEncoderPadding, paddingsamples);
+                }
+            }
+            *offset += chunk_size;
             break;
         }
 
@@ -1161,6 +1242,7 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
         }
 
         case FOURCC('m', 'p', '4', 'a'):
+#ifdef TARGET_BOARD_FIBER
         {
         	if (chunk_data_size < 20 + 8) {
         		*offset += chunk_size;
@@ -1168,6 +1250,7 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
         	}
         	//.lys!!no break here
 		}
+#endif
         case FOURCC('e', 'n', 'c', 'a'):
         case FOURCC('s', 'a', 'm', 'r'):
         case FOURCC('s', 'a', 'w', 'b'):
@@ -1183,7 +1266,9 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
                 return ERROR_IO;
             }
 
+#ifdef TARGET_BOARD_FIBER
             uint16_t version = U16_AT(&buffer[8]);
+#endif
             uint16_t data_ref_index = U16_AT(&buffer[6]);
             uint32_t num_channels = U16_AT(&buffer[16]);
 
@@ -1202,7 +1287,7 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
 
             off64_t stop_offset = *offset + chunk_size;
             *offset = data_offset + sizeof(buffer);
-
+#ifdef TARGET_BOARD_FIBER
             ALOGV("mIsQtff:%d version:%d", mIsQtff, version);
 			if (mIsQtff) {
 				if (version==1) {
@@ -1221,6 +1306,12 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
                     }
                 }else {
                     *offset = stop_offset;
+#else
+            while (*offset < stop_offset) {
+                status_t err = parseChunk(offset, depth + 1);
+                if (err != OK) {
+                    return err;
+#endif
                 }
             }
 
@@ -1274,6 +1365,8 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
             off64_t stop_offset = *offset + chunk_size;
             *offset = data_offset + sizeof(buffer);
             while (*offset < stop_offset) {
+#ifdef TARGET_BOARD_FIBER
+
                 if (*offset < stop_offset-8) {
                     status_t err = parseChunk(offset, depth + 1);
                     if (err != OK) {
@@ -1281,6 +1374,11 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
                     }
                 }else {
                     *offset = stop_offset;
+#else
+                status_t err = parseChunk(offset, depth + 1);
+                if (err != OK) {
+                    return err;
+#endif
                 }
             }
 
@@ -1346,19 +1444,33 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
             } else {
                 // No size was specified. Pick a conservatively large size.
                 int32_t width, height;
-                if (mLastTrack->meta->findInt32(kKeyWidth, &width) &&
-                        mLastTrack->meta->findInt32(kKeyHeight, &height)) {
-                    mLastTrack->meta->setInt32(kKeyMaxInputSize, width * height * 3 / 2);
-                } else {
+                if (!mLastTrack->meta->findInt32(kKeyWidth, &width) ||
+                    !mLastTrack->meta->findInt32(kKeyHeight, &height)) {
                     ALOGE("No width or height, assuming worst case 1080p");
-                    mLastTrack->meta->setInt32(kKeyMaxInputSize, 3110400);
+                    width = 1920;
+                    height = 1080;
                 }
+
+                const char *mime;
+                CHECK(mLastTrack->meta->findCString(kKeyMIMEType, &mime));
+                if (!strcmp(mime, MEDIA_MIMETYPE_VIDEO_AVC)) {
+                    // AVC requires compression ratio of at least 2, and uses
+                    // macroblocks
+                    max_size = ((width + 15) / 16) * ((height + 15) / 16) * 192;
+                } else {
+                    // For all other formats there is no minimum compression
+                    // ratio. Use compression ratio of 1.
+                    max_size = width * height * 3 / 2;
+                }
+                mLastTrack->meta->setInt32(kKeyMaxInputSize, max_size);
             }
             *offset += chunk_size;
 
-            // Calculate average frame rate.
+            // NOTE: setting another piece of metadata invalidates any pointers (such as the
+            // mimetype) previously obtained, so don't cache them.
             const char *mime;
             CHECK(mLastTrack->meta->findCString(kKeyMIMEType, &mime));
+            // Calculate average frame rate.
             if (!strncasecmp("video/", mime, 6)) {
                 size_t nSamples = mLastTrack->sampleTable->countSamples();
                 int64_t durationUs;
@@ -1597,24 +1709,26 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
 
         case FOURCC('m', 'v', 'h', 'd'):
         {
-            if (chunk_data_size < 12) {
+            if (chunk_data_size < 24) {
                 return ERROR_MALFORMED;
             }
 
-            uint8_t header[12];
+            uint8_t header[24];
             if (mDataSource->readAt(
                         data_offset, header, sizeof(header))
                     < (ssize_t)sizeof(header)) {
                 return ERROR_IO;
             }
 
-            int64_t creationTime;
+            uint64_t creationTime;
             if (header[0] == 1) {
                 creationTime = U64_AT(&header[4]);
+                mHeaderTimescale = U32_AT(&header[20]);
             } else if (header[0] != 0) {
                 return ERROR_MALFORMED;
             } else {
                 creationTime = U32_AT(&header[4]);
+                mHeaderTimescale = U32_AT(&header[12]);
             }
 
             String8 s;
@@ -1731,6 +1845,7 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
             break;
         }
 
+#ifdef TARGET_BOARD_FIBER
         case FOURCC('w', 'a', 'v', 'e'):
 		{
 			off64_t stop_offset = *offset + chunk_size;
@@ -1770,6 +1885,7 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
 			break;
 		}
 
+#endif
         case FOURCC('-', '-', '-', '-'):
         {
             mLastCommentMean.clear();
@@ -1786,10 +1902,12 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
             return UNKNOWN_ERROR; // stop parsing after sidx
         }
 
+#ifdef TARGET_BOARD_FIBER
         case 0: //leaf atom
 		{
         	return INFO_VENDOR_LEAF_ATOM;
 		}
+#endif
 
         default:
         {
@@ -1952,13 +2070,13 @@ status_t MPEG4Extractor::parseTrackHeader(
         mtime = U64_AT(&buffer[12]);
         id = U32_AT(&buffer[20]);
         duration = U64_AT(&buffer[28]);
-    } else {
-        CHECK_EQ((unsigned)version, 0u);
-
+    } else if (version == 0) {
         ctime = U32_AT(&buffer[4]);
         mtime = U32_AT(&buffer[8]);
         id = U32_AT(&buffer[12]);
         duration = U32_AT(&buffer[20]);
+    } else {
+        return ERROR_UNSUPPORTED;
     }
 
     mLastTrack->meta->setInt32(kKeyTrackID, id);
@@ -3158,7 +3276,9 @@ size_t MPEG4Source::parseNALSize(const uint8_t *data) const {
 status_t MPEG4Source::read(
         MediaBuffer **out, const ReadOptions *options) {
     Mutex::Autolock autoLock(mLock);
+#ifdef TARGET_BOARD_FIBER
     bool isSeekMode = false;
+#endif
 
     CHECK(mStarted);
 
@@ -3179,7 +3299,9 @@ status_t MPEG4Source::read(
                 findFlags = SampleTable::kFlagBefore;
                 break;
             case ReadOptions::SEEK_NEXT_SYNC:
+#ifdef TARGET_BOARD_FIBER
             case ReadOptions::SEEK_VENDOR_OPT:   
+#endif
                 findFlags = SampleTable::kFlagAfter;
                 break;
             case ReadOptions::SEEK_CLOSEST_SYNC:
@@ -3190,8 +3312,6 @@ status_t MPEG4Source::read(
                 CHECK(!"Should not be here.");
                 break;
         }
-
-        isSeekMode = true;
 
         uint32_t sampleIndex;
         status_t err = mSampleTable->findSampleAtTime(
@@ -3210,6 +3330,9 @@ status_t MPEG4Source::read(
             err = mSampleTable->findSyncSampleNear(
                     sampleIndex, &syncSampleIndex, findFlags);
         }
+
+#ifdef TARGET_BOARD_FIBER
+        isSeekMode = true;
 
         ALOGV("syncSampleIndex:%d",syncSampleIndex);
 
@@ -3253,6 +3376,9 @@ status_t MPEG4Source::read(
         }
 
         uint64_t sampleTime;
+#else
+        uint32_t sampleTime;
+#endif
         if (err == OK) {
             err = mSampleTable->getMetaDataForSample(
                     sampleIndex, NULL, NULL, &sampleTime);
@@ -3298,7 +3424,11 @@ status_t MPEG4Source::read(
 
     off64_t offset;
     size_t size;
+#ifdef TARGET_BOARD_FIBER
     uint64_t cts;
+#else
+    uint32_t cts;
+#endif
     bool isSyncSample;
     bool newBuffer = false;
     if (mBuffer == NULL) {
@@ -3338,10 +3468,11 @@ status_t MPEG4Source::read(
             mBuffer->meta_data()->setInt64(
                     kKeyTime, ((int64_t)cts * 1000000) / mTimescale);
 
+#ifdef TARGET_BOARD_FIBER
             if (isSeekMode) { //set video offset
             	mBuffer->meta_data()->setInt64(kKeyOffset, offset);
             }
-            
+#endif
             if (targetSampleTimeUs >= 0) {
                 mBuffer->meta_data()->setInt64(
                         kKeyTargetTime, targetSampleTimeUs);
@@ -3463,9 +3594,11 @@ status_t MPEG4Source::read(
         mBuffer->meta_data()->clear();
         mBuffer->meta_data()->setInt64(
                 kKeyTime, ((int64_t)cts * 1000000) / mTimescale);
+#ifdef TARGET_BOARD_FIBER
         if (isSeekMode) { //set video offset
         	mBuffer->meta_data()->setInt64(kKeyOffset, offset);
         }
+#endif
 
         if (targetSampleTimeUs >= 0) {
             mBuffer->meta_data()->setInt64(
