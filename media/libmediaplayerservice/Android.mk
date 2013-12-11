@@ -100,7 +100,7 @@ LOCAL_C_INCLUDES +=             \
 	$(TOP)/frameworks/av/media/CedarX-Projects/CedarX/include/include_cedarv \
 	$(TOP)/frameworks/av/media/CedarX-Projects/CedarX/include \
 	$(TOP)/frameworks/av/media/CedarX-Projects/CedarA \
-	$(TOP)/frameworks/av/media/CedarX-Projects/CedarA/include 
+	$(TOP)/frameworks/av/media/CedarX-Projects/CedarA/include
 endif
 
 ifeq ($(TARGET_BOARD_PLATFORM), fiber)

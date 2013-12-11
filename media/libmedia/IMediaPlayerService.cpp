@@ -397,7 +397,7 @@ public:
         return ret;
     }
     /* add by Gary. end   -----------------------------------}} */ 
-#ifdef TARGET_BOARD_FIBER
+#endif
 
     virtual status_t updateProxyConfig(
             const char *host, int32_t port, const char *exclusionList) {

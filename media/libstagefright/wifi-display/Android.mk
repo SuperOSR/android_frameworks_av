@@ -21,7 +21,7 @@ ifeq ($(TARGET_BOARD_PLATFORM), fiber)
         wfdsink/RTPSource.cpp           \
         wfdsink/RTPJitterBuffer.cpp     \
         wfdsink/WfdSink.cpp             \
-        wfdsink/MiracastSink.cpp        
+        wfdsink/MiracastSink.cpp
 endif
 
 LOCAL_C_INCLUDES:= \

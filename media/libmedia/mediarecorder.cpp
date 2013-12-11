@@ -60,6 +60,7 @@ void getCallingProcessName(char *name)
 		ALOGE("Obtain calling process failed");
 	}
 }
+#endif
 
 status_t MediaRecorder::setCamera(const sp<ICamera>& camera, const sp<ICameraRecordingProxy>& proxy)
 {
