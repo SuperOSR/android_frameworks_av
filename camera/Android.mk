@@ -22,10 +22,6 @@ LOCAL_SRC_FILES:= \
 	ProCamera.cpp \
 	CameraBase.cpp \
 
-ifeq ($(TARGET_BOARD_PLATFORM), fiber)
-    LOCAL_CFLAGS += -DTARGET_BOARD_FIBER
-endif
-
 LOCAL_SHARED_LIBRARIES := \
 	libcutils \
 	libutils \

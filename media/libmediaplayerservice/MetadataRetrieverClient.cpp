@@ -38,9 +38,6 @@
 #include "MetadataRetrieverClient.h"
 #include "StagefrightMetadataRetriever.h"
 #include "MediaPlayerFactory.h"
-#ifdef TARGET_BOARD_FIBER
-#include "CedarXMetadataRetriever.h"
-#endif
 
 namespace android {
 
@@ -86,14 +83,6 @@ static sp<MediaMetadataRetrieverBase> createRetriever(player_type playerType)
 {
     sp<MediaMetadataRetrieverBase> p;
     switch (playerType) {
-#ifdef TARGET_BOARD_FIBER
-        case CEDARX_PLAYER:
-    	case CEDARA_PLAYER:
-        {
-            p = new CedarXMetadataRetriever;
-            break;
-    	}
-#endif
         case STAGEFRIGHT_PLAYER:
         case NU_PLAYER:
         {
@@ -169,20 +158,11 @@ status_t MetadataRetrieverClient::setDataSource(int fd, int64_t offset, int64_t 
         ALOGV("calculated length = %lld", length);
     }
 
-#ifdef TARGET_BOARD_FIBER
-    player_type playerType =
-        MediaPlayerFactory::getPlayerType(NULL /* client */,
-                                          fd,
-                                          offset,
-                                          length,
-                                          false);
-#else
     player_type playerType =
         MediaPlayerFactory::getPlayerType(NULL /* client */,
                                           fd,
                                           offset,
                                           length);
-#endif
     ALOGV("player type = %d", playerType);
     sp<MediaMetadataRetrieverBase> p = createRetriever(playerType);
     if (p == NULL) {
@@ -195,33 +175,8 @@ status_t MetadataRetrieverClient::setDataSource(int fd, int64_t offset, int64_t 
     return status;
 }
 
-#ifdef TARGET_BOARD_FIBER
-sp<IMemory> MetadataRetrieverClient::getStreamAtTime(int64_t timeUs)
- {
-    status_t ret;
-    int      nStreamSize;
-
-    Mutex::Autolock lock(mLock);
-    mThumbnail.clear();
-    if (mRetriever == NULL) {
-        ALOGE("retriever is not initialized");
-        return NULL;
-    }
-
-    mThumbnail = mRetriever->getStreamAtTime(timeUs);
-    if (mThumbnail == NULL) {
-        ALOGE("failed to capture video stream.");
-    }
-
-    return mThumbnail;
-}
-#endif
-
 sp<IMemory> MetadataRetrieverClient::getFrameAtTime(int64_t timeUs, int option)
 {
-#ifdef TARGET_BOARD_FIBER
-    if (option != 0x3){
-#endif
     ALOGV("getFrameAtTime: time(%lld us) option(%d)", timeUs, option);
     Mutex::Autolock lock(mLock);
     mThumbnail.clear();
@@ -259,12 +214,6 @@ sp<IMemory> MetadataRetrieverClient::getFrameAtTime(int64_t timeUs, int option)
     memcpy(frameCopy->mData, frame->mData, frame->mSize);
     delete frame;  // Fix memory leakage
     return mThumbnail;
-#ifdef TARGET_BOARD_FIBER
-    }else{
-        ALOGD("getStreamAtTime: time(%lld us) option(%d)", timeUs, option);
-        return getStreamAtTime(timeUs);
-    }
-#endif
 }
 
 sp<IMemory> MetadataRetrieverClient::extractAlbumArt()

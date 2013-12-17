@@ -67,10 +67,6 @@ struct ACodec : public AHierarchicalStateMachine {
 
     void signalRequestIDRFrame();
 
-#ifdef TARGET_BOARD_FIBER
-    status_t setEncoderBitrate(int32_t bitrate);
-
-#endif
     struct PortDescription : public RefBase {
         size_t countBuffers();
         IOMX::buffer_id bufferIDAt(size_t index) const;
@@ -120,6 +116,7 @@ private:
         kWhatStart                   = 'star',
         kWhatRequestIDRFrame         = 'ridr',
         kWhatSetParameters           = 'setP',
+        kWhatSubmitOutputMetaDataBufferIfEOS = 'subm',
     };
 
     enum {
@@ -180,11 +177,6 @@ private:
 
     sp<ANativeWindow> mNativeWindow;
 
-#ifdef TARGET_BOARD_FIBER
-    sp<ANativeWindow> mNativeWindowSoft;
-    int32_t mVideoWidth,mVideoHeight;
-
-#endif
     Vector<BufferInfo> mBuffers[2];
     bool mPortEOS[2];
     status_t mInputEOSResult;
@@ -221,6 +213,7 @@ private:
             OMX_U32 *nMinUndequeuedBuffers);
     status_t allocateOutputMetaDataBuffers();
     status_t submitOutputMetaDataBuffer();
+    void signalSubmitOutputMetaDataBufferIfEOS_workaround();
     status_t allocateOutputBuffersFromNativeWindow();
     status_t cancelBufferToNativeWindow(BufferInfo *info);
     status_t freeOutputBuffersNotOwnedByComponent();
@@ -260,7 +253,7 @@ private:
             OMX_U32 portIndex, OMX_AUDIO_CODINGTYPE desiredFormat);
 
     status_t setupAMRCodec(bool encoder, bool isWAMR, int32_t bitRate);
-    status_t setupG711Codec(bool encoder, int32_t numChannels, int32_t sampleRate);
+    status_t setupG711Codec(bool encoder, int32_t numChannels);
 
     status_t setupFlacCodec(
             bool encoder, int32_t numChannels, int32_t sampleRate, int32_t compressionLevel);

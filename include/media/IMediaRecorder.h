@@ -57,10 +57,6 @@ public:
     virtual status_t close() = 0;
     virtual status_t release() = 0;
     virtual sp<IGraphicBufferProducer> querySurfaceMediaSource() = 0;
-#ifdef TARGET_BOARD_FIBER
-    virtual status_t queueBuffer(int index, int addr_y, int addr_c, int64_t timestamp) = 0;
-    virtual sp<IMemory> getOneBsFrame(int mode) = 0;
-#endif
 };
 
 // ----------------------------------------------------------------------------

@@ -67,18 +67,7 @@ sp<IGraphicBufferProducer> MediaRecorderClient::querySurfaceMediaSource()
     return mRecorder->querySurfaceMediaSource();
 }
 
-#ifdef TARGET_BOARD_FIBER
-status_t MediaRecorderClient::queueBuffer(int index, int addr_y, int addr_c, int64_t timestamp)
-{
-    ALOGV("queueBuffer");
-    Mutex::Autolock lock(mLock);
-    if (mRecorder == NULL) {
-        ALOGE("recorder is not initialized");
-        return NO_INIT;
-    }
-    return mRecorder->queueBuffer(index, addr_y, addr_c, timestamp);
-}
-#endif
+
 
 status_t MediaRecorderClient::setCamera(const sp<ICamera>& camera,
                                         const sp<ICameraRecordingProxy>& proxy)
@@ -240,19 +229,6 @@ status_t MediaRecorderClient::getMaxAmplitude(int* max)
     }
     return mRecorder->getMaxAmplitude(max);
 }
-
-#ifdef TARGET_BOARD_FIBER
-sp<IMemory> MediaRecorderClient::getOneBsFrame(int mode)
-{
-    ALOGV("getMaxAmplitude");
-    Mutex::Autolock lock(mLock);
-    if (mRecorder == NULL) {
-        ALOGE("recorder is not initialized");
-        return NULL;
-    }
-    return mRecorder->getOneBsFrame(mode);
-}
-#endif
 
 status_t MediaRecorderClient::start()
 {

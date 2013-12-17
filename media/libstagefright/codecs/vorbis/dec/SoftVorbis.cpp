@@ -81,11 +81,7 @@ void SoftVorbis::initPorts() {
     def.eDir = OMX_DirInput;
     def.nBufferCountMin = kNumBuffers;
     def.nBufferCountActual = def.nBufferCountMin;
-#ifdef TARGET_BOARD_FIBER
-    def.nBufferSize = 8192 * 4;
-#else
     def.nBufferSize = 8192;
-#endif
     def.bEnabled = OMX_TRUE;
     def.bPopulated = OMX_FALSE;
     def.eDomain = OMX_PortDomainAudio;

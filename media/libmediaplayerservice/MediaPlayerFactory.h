@@ -55,13 +55,6 @@ class MediaPlayerFactory {
                                      int fd,
                                      int64_t offset,
                                      int64_t length);
-#ifdef TARGET_BOARD_FIBER
-    static player_type getPlayerType(const sp<IMediaPlayer>& client,
-                                     int fd,
-                                     int64_t offset,
-                                     int64_t length,
-                                     bool check_cedar);
-#endif
     static player_type getPlayerType(const sp<IMediaPlayer>& client,
                                      const sp<IStreamSource> &source);
 

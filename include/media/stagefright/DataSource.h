@@ -69,10 +69,6 @@ public:
         return ERROR_UNSUPPORTED;
     }
 
-#ifdef TARGET_BOARD_FIBER
-    virtual void forceDisconnect() {};
-
-#endif
     ////////////////////////////////////////////////////////////////////////////
 
     bool sniff(String8 *mimeType, float *confidence, sp<AMessage> *meta);

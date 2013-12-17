@@ -55,9 +55,7 @@ LOCAL_SHARED_LIBRARIES :=     \
     libvideoeditor_osal       \
     libvideoeditorplayer      \
 
-ifeq ($(TARGET_BOARD_PLATFORM), fiber)
-    LOCAL_CFLAGS += -DTARGET_BOARD_FIBER
-endif
+LOCAL_CFLAGS += \
 
 LOCAL_STATIC_LIBRARIES := \
     libstagefright_color_conversion

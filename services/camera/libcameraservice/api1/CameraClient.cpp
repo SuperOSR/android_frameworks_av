@@ -88,15 +88,9 @@ status_t CameraClient::initialize(camera_module_t *module) {
             (void *)mCameraId);
 
     // Enable zoom, error, focus, and metadata messages by default
-#ifdef TARGET_BOARD_FIBER
-    enableMsgType(CAMERA_MSG_ERROR | CAMERA_MSG_ZOOM | CAMERA_MSG_FOCUS |
-                  CAMERA_MSG_PREVIEW_METADATA | CAMERA_MSG_FOCUS_MOVE |
-                  CAMERA_MSG_CONTINUOUSSNAP | CAMERA_MSG_SNAP | CAMERA_MSG_SNAP_THUMB |
-                  CAMERA_MSG_SNAP_FD); //enable the continuoussnap and singlesnap message by fuqiang
-#else
     enableMsgType(CAMERA_MSG_ERROR | CAMERA_MSG_ZOOM | CAMERA_MSG_FOCUS |
                   CAMERA_MSG_PREVIEW_METADATA | CAMERA_MSG_FOCUS_MOVE);
-#endif
+
     LOG1("CameraClient::initialize X (pid %d, id %d)", callingPid, mCameraId);
     return OK;
 }
@@ -431,9 +425,6 @@ status_t CameraClient::startRecordingMode() {
 
     // start recording mode
     enableMsgType(CAMERA_MSG_VIDEO_FRAME);
-#ifdef TARGET_BOARD_FIBER
-	if (mPlayShutterSound)
-#endif
     mCameraService->playSound(CameraService::SOUND_RECORDING);
     result = mHardware->startRecording();
     if (result != NO_ERROR) {
@@ -463,10 +454,8 @@ void CameraClient::stopRecording() {
 
     disableMsgType(CAMERA_MSG_VIDEO_FRAME);
     mHardware->stopRecording();
-#ifdef TARGET_BOARD_FIBER
-	if (mPlayShutterSound)
-#endif
     mCameraService->playSound(CameraService::SOUND_RECORDING);
+
     mPreviewBuffer.clear();
 }
 
@@ -564,17 +553,6 @@ status_t CameraClient::setParameters(const String8& params) {
     return mHardware->setParameters(p);
 }
 
-#ifdef TARGET_BOARD_FIBER
-status_t CameraClient::setFd(int fd) {
-    ALOGV("CameraClient setFd = %d", fd);
-    Mutex::Autolock lock(mLock);
-    status_t result = checkPidAndHardware();
-    if (result != NO_ERROR) return result;
-
-    return mHardware->setFd(dup(fd));
-}
-#endif
-
 // get preview/capture parameters - key/value pairs
 String8 CameraClient::getParameters() const {
     Mutex::Autolock lock(mLock);
@@ -645,9 +623,6 @@ status_t CameraClient::sendCommand(int32_t cmd, int32_t arg1, int32_t arg2) {
         }
         return OK;
     } else if (cmd == CAMERA_CMD_PLAY_RECORDING_SOUND) {
-#ifdef TARGET_BOARD_FIBER
-	if (mPlayShutterSound)
-#endif
         mCameraService->playSound(CameraService::SOUND_RECORDING);
     } else if (cmd == CAMERA_CMD_SET_VIDEO_BUFFER_COUNT) {
         // Silently ignore this command

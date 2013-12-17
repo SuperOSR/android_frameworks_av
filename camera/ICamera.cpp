@@ -38,9 +38,6 @@ enum {
     CANCEL_AUTO_FOCUS,
     TAKE_PICTURE,
     SET_PARAMETERS,
-#ifdef TARGET_BOARD_FIBER
-    SET_FD,
-#endif
     GET_PARAMETERS,
     SEND_COMMAND,
     CONNECT,
@@ -229,19 +226,6 @@ public:
         return reply.readInt32();
     }
 
-#ifdef TARGET_BOARD_FIBER
-	//set file descriptor to camera HAL for writing file by fuqiang.
-	status_t setFd(int fd)
-    {
-        ALOGV("ICamera setFd fd = %d", fd);
-		Parcel data, reply;
-		data.writeInterfaceToken(ICamera::getInterfaceDescriptor());
-        data.writeFileDescriptor(fd);
-        remote()->transact(SET_FD, data, &reply);
-        return reply.readInt32();
-    }
-
-#endif
     // get preview/capture parameters - key/value pairs
     String8 getParameters() const
     {
@@ -400,15 +384,6 @@ status_t BnCamera::onTransact(
             reply->writeInt32(setParameters(params));
             return NO_ERROR;
          } break;
-#ifdef TARGET_BOARD_FIBER
-		case SET_FD: {
-            CHECK_INTERFACE(ICamera, data, reply);
-            int fd = data.readFileDescriptor();
-			ALOGV("ICamera SET_FD fd = %d", fd);
-            reply->writeInt32(setFd(fd));
-            return NO_ERROR;
-         } break;
-#endif
         case GET_PARAMETERS: {
             ALOGV("GET_PARAMETERS");
             CHECK_INTERFACE(ICamera, data, reply);

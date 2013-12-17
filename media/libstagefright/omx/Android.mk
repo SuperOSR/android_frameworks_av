@@ -16,10 +16,6 @@ LOCAL_C_INCLUDES += \
         $(TOP)/frameworks/native/include/media/hardware \
         $(TOP)/frameworks/native/include/media/openmax
 
-ifeq ($(TARGET_BOARD_PLATFORM), fiber)
-    LOCAL_CFLAGS += -DTARGET_BOARD_FIBER
-endif
-
 LOCAL_SHARED_LIBRARIES :=               \
         libbinder                       \
         libmedia                        \

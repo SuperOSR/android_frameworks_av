@@ -56,10 +56,6 @@ LOCAL_C_INCLUDES += \
     external/jpeg
 
 
-ifeq ($(TARGET_BOARD_PLATFORM), fiber)
-    LOCAL_CFLAGS += -DTARGET_BOARD_FIBER
-endif
-
 LOCAL_CFLAGS += -Wall -Wextra
 
 LOCAL_MODULE:= libcameraservice

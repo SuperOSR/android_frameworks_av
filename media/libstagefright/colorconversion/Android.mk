@@ -5,10 +5,6 @@ LOCAL_SRC_FILES:=                     \
         ColorConverter.cpp            \
         SoftwareRenderer.cpp
 
-ifeq ($(TARGET_BOARD_PLATFORM), fiber)
-    LOCAL_CFLAGS += -DTARGET_BOARD_FIBER
-endif
-
 LOCAL_C_INCLUDES := \
         $(TOP)/frameworks/native/include/media/openmax \
         $(TOP)/hardware/msm7k

@@ -40,16 +40,6 @@ class IRemoteDisplay;
 class IRemoteDisplayClient;
 struct IStreamSource;
 
-#ifdef TARGET_BOARD_FIBER
-/* add by Gary. start {{----------------------------------- */
-/**
-*  screen name
-*/
-#define MASTER_SCREEN        0
-#define SLAVE_SCREEN         1
-/* add by Gary. end   -----------------------------------}} */
-
-#endif
 class IMediaPlayerService: public IInterface
 {
 public:
@@ -103,41 +93,6 @@ public:
 
     virtual void addBatteryData(uint32_t params) = 0;
     virtual status_t pullBatteryData(Parcel* reply) = 0;
-#ifdef TARGET_BOARD_FIBER
-    /* add by Gary. start {{----------------------------------- */
-    virtual status_t        setScreen(int screen) = 0;
-    virtual status_t        getScreen(int *screen) = 0;
-    virtual status_t        isPlayingVideo(int *playing) = 0;
-    /* add by Gary. end   -----------------------------------}} */
-
-    /* add by Gary. start {{----------------------------------- */
-    /* 2011-11-14 */
-    /* support adjusting colors while playing video */
-    virtual status_t        setVppGate(bool enableVpp) = 0;
-    virtual bool            getVppGate() = 0;
-    virtual status_t        setLumaSharp(int value) = 0;
-    virtual int             getLumaSharp() = 0;
-    virtual status_t        setChromaSharp(int value) = 0;
-    virtual int             getChromaSharp() = 0;
-    virtual status_t        setWhiteExtend(int value) = 0;
-    virtual int             getWhiteExtend() = 0;
-    virtual status_t        setBlackExtend(int value) = 0;
-    virtual int             getBlackExtend() = 0;
-    /* add by Gary. end   -----------------------------------}} */
-
-    /* add by Gary. start {{----------------------------------- */
-    /* 2012-03-12 */
-    /* add the global interfaces to control the subtitle gate  */
-    virtual status_t        setGlobalSubGate(bool showSub) = 0;
-    virtual bool            getGlobalSubGate() = 0;
-    /* add by Gary. end   -----------------------------------}} */
-
-    /* add by Gary. start {{----------------------------------- */
-    /* 2012-4-24 */
-    /* add two general interfaces for expansibility */
-    virtual status_t        generalGlobalInterface(int cmd, int int1, int int2, int int3, void *p) = 0;
-    /* add by Gary. end   -----------------------------------}} */
-#endif
 
     virtual status_t updateProxyConfig(
             const char *host, int32_t port, const char *exclusionList) = 0;

@@ -47,9 +47,6 @@ private:
 
     bool mIsMLaw;
     OMX_U32 mNumChannels;
-#ifdef TARGET_BOARD_FIBER
-    OMX_U32 nSampleRate;
-#endif
     bool mSignalledError;
 
     void initPorts();

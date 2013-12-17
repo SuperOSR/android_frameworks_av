@@ -37,10 +37,9 @@ AudioParameter::AudioParameter(const String8& keyValuePairs)
 {
     char *str = new char[keyValuePairs.length()+1];
     mKeyValuePairs = keyValuePairs;
-    char *last;
 
     strcpy(str, keyValuePairs.string());
-    char *pair = strtok_r(str, ";", &last);
+    char *pair = strtok(str, ";");
     while (pair != NULL) {
         if (strlen(pair) != 0) {
             size_t eqIdx = strcspn(pair, "=");
@@ -59,7 +58,7 @@ AudioParameter::AudioParameter(const String8& keyValuePairs)
         } else {
             ALOGV("AudioParameter() cstor empty key value pair");
         }
-        pair = strtok_r(NULL, ";", &last);
+        pair = strtok(NULL, ";");
     }
 
     delete[] str;

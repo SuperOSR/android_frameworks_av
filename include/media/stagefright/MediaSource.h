@@ -68,9 +68,6 @@ struct MediaSource : public virtual RefBase {
             SEEK_NEXT_SYNC,
             SEEK_CLOSEST_SYNC,
             SEEK_CLOSEST,
-#ifdef TARGET_BOARD_FIBER
-            SEEK_VENDOR_OPT = 100,
-#endif
         };
 
         ReadOptions();
