@@ -1,0 +1,64 @@
+#this file is used for Android compile configuration
+
+############################################################################
+CEDARX_EXT_CFLAGS :=
+# manually config CEDARX_ADAPTER_VERSION according to internal version. now default set to v1.5release(V15).
+CEDARX_ADAPTER_VERSION := 5
+CEDARX_EXT_CFLAGS += -DCEDARX_ADAPTER_VERSION=5
+
+
+CEDARX_PRODUCTOR := GENERIC
+CEDARX_DEBUG_ENABLE := N
+ifeq ($(CEDARX_DEBUG_ENABLE), Y)
+CEDARX_DEBUG_FRAMEWORK := Y
+CEDARX_DEBUG_CEDARV := Y
+CEDARX_DEBUG_DEMUXER := Y
+else
+CEDARX_DEBUG_FRAMEWORK := N
+CEDARX_DEBUG_CEDARV := N
+CEDARX_DEBUG_DEMUXER := N
+endif
+
+############################################################################
+AV_BASE_PATH := av
+TEMP_COMPILE_DISABLE := true
+CEDARX_ANDROID_VERSION := 9
+CEDARX_ANDROID_CODE := JB42
+CEDARX_RTSP_VERSION := 5
+CEDARX_USE_SFTDEMUX := Y
+CEDARX_TOP := $(TOP)/frameworks/av/media/CedarX-Projects/CedarX
+CEDARX_EXT_CFLAGS += -DCEDARX_ANDROID_VERSION=9
+
+CEDARX_PREBUILD_LIB_PATH := LIB_$(CEDARX_ANDROID_CODE)_$(CEDARX_CHIP_VERSION)
+
+############################################################################
+
+CEDARX_ENABLE_MEMWATCH := N
+
+ifeq ($(CEDARX_CHIP_VERSION), F25)
+CEDAR_ENCODER_VERSION := F23
+else
+CEDAR_ENCODER_VERSION := $(CEDARX_CHIP_VERSION)
+endif
+
+ifeq ($(CEDARX_CHIP_VERSION),F33)
+  CEDARX_USE_SUNXI_MEM_ALLOCATOR := Y
+else
+  CEDARX_USE_SUNXI_MEM_ALLOCATOR := N
+endif
+
+ifeq ($(CEDARX_CHIP_VERSION),F51)
+  CEDARX_USE_SUNXI_MEM_ALLOCATOR := Y
+endif
+
+CEDARX_EXT_CFLAGS +=-D__OS_ANDROID -D__CHIP_VERSION_$(CEDARX_CHIP_VERSION)
+CEDARX_EXT_CFLAGS +=-D__CDX_ENABLE_SUBTITLE 
+CEDARX_EXT_CFLAGS +=-D__CDX_ENABLE_DRM
+
+ifeq ($(CEDARX_ENABLE_MEMWATCH),Y)
+CEDARX_EXT_CFLAGS +=-DMEMWATCH -DMEMWATCH_STDIO -D__CDX_MEMWATCH -I${CEDARX_TOP}/libexternal/memwatch-2.71
+endif
+
+ifeq ($(CEDARX_PRODUCTOR),TVD_001)
+# no use! CEDARX_EXT_CFLAGS += -D__ENABLE_SWA_PLUGIN
+endif
