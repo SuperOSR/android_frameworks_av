@@ -1,5 +1,21 @@
 LOCAL_PATH:= $(call my-dir)
 
+ifeq ($(TARGET_BOARD_PLATFORM), fiber)
+###########################################
+
+include $(CLEAR_VARS)
+LOCAL_MODULE := librotation
+
+LOCAL_MODULE_TAGS := optional 
+
+LOCAL_SRC_FILES := rotation.cpp 
+
+LOCAL_SHARED_LIBRARIES := libutils libbinder
+
+include $(BUILD_STATIC_LIBRARY)
+###########################################
+endif
+
 #
 # libmediaplayerservice
 #
