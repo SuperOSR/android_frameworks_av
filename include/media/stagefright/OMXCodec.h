@@ -248,6 +248,9 @@ private:
             int32_t numChannels, int32_t sampleRate, int32_t bitRate,
             int32_t aacProfile, bool isADTS);
 
+#ifdef TARGET_BOARD_FIBER
+    void setG711Format(int32_t numChannels, int32_t sampleRate);
+#endif
     void setG711Format(int32_t numChannels);
 
     status_t setVideoPortFormatType(

@@ -157,6 +157,10 @@ enum {
     kKeyCryptoKey         = 'cryK',  // uint8_t[16]
     kKeyCryptoIV          = 'cryI',  // uint8_t[16]
     kKeyCryptoMode        = 'cryM',  // int32_t
+#ifdef TARGET_BOARD_FIBER
+    kKeyScreenID 		 = 'scrn',
+    kKeyOffset 			 = 'offs',
+#endif
 
     kKeyCryptoDefaultIVSize = 'cryS',  // int32_t
 

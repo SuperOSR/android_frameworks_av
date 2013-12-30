@@ -112,6 +112,10 @@ struct MediaCodec : public AHandler {
 
     status_t requestIDRFrame();
 
+#ifdef TARGET_BOARD_FIBER
+    status_t setEncoderBitrate(int32_t bitrate);
+
+#endif
     // Notification will be posted once there "is something to do", i.e.
     // an input/output buffer has become available, a format change is
     // pending, an error is pending.
