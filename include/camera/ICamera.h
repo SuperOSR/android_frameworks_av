@@ -103,6 +103,11 @@ public:
     // set preview/capture parameters - key/value pairs
     virtual status_t        setParameters(const String8& params) = 0;
 
+#ifdef TARGET_BOARD_FIBER
+	// set file descriptor to camera HAL for writing file on android4.2 by fuqiang.
+	virtual status_t        setFd(int fd) = 0;
+
+#endif
     // get preview/capture parameters - key/value pairs
     virtual String8         getParameters() const = 0;
 
