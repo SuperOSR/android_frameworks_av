@@ -183,7 +183,11 @@ status_t Converter::initEncoder() {
     }
 
     int32_t audioBitrate = GetInt32Property("media.wfd.audio-bitrate", 128000);
+#ifdef TARGET_BOARD_FIBER
+    int32_t videoBitrate = GetInt32Property("media.wfd.video-bitrate", 3000000);
+#else
     int32_t videoBitrate = GetInt32Property("media.wfd.video-bitrate", 5000000);
+#endif
     mPrevVideoBitrate = videoBitrate;
 
     ALOGI("using audio bitrate of %d bps, video bitrate of %d bps",
@@ -442,6 +446,25 @@ void Converter::onMessageReceived(const sp<AMessage> &msg) {
         {
             ALOGI("shutting down %s encoder", mIsVideo ? "video" : "audio");
 
+#ifdef TARGET_BOARD_FIBER
+            /*bugfix: release queue buffer,it may fall into blackhold.
+             *		when 4kplayer is floating in the dynamic desktop,
+             *		and someone disable wifi in the quicksetting, this will lead to UI deadlock.
+             *   It mainly let the source emit onDisplayDisconnect msg to framework.
+             */
+            while (!mInputBufferQueue.empty()) {
+                sp<ABuffer> accessUnit = *mInputBufferQueue.begin();
+                mInputBufferQueue.erase(mInputBufferQueue.begin());
+                void *mbuf = NULL;
+                if (accessUnit->meta()->findPointer("mediaBuffer", &mbuf)
+                        && mbuf != NULL) {
+                    ALOGI(">>releasing mbuf %p", mbuf);
+                    accessUnit->meta()->setPointer("mediaBuffer", NULL);
+                    static_cast<MediaBuffer *>(mbuf)->release();
+                    mbuf = NULL;
+                }
+            }
+#endif
             releaseEncoder();
 
             AString mime;
@@ -812,6 +835,14 @@ status_t Converter::doMoreWork() {
 void Converter::requestIDRFrame() {
     (new AMessage(kWhatRequestIDRFrame, id()))->post();
 }
+
+#ifdef TARGET_BOARD_FIBER
+status_t Converter::setEncoderBitrate(int32_t bitrate) {
+    if(mEncoder == NULL)
+        return NO_INIT;
+    return mEncoder->setEncoderBitrate(bitrate);
+}
+#endif
 
 void Converter::dropAFrame() {
     // Unsupported in surface input mode.

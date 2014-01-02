@@ -110,6 +110,10 @@ LOCAL_CPPFLAGS += -DCHROMIUM_AVAILABLE=1
 LOCAL_SHARED_LIBRARIES += libstlport
 include external/stlport/libstlport.mk
 
+ifeq ($(TARGET_BOARD_PLATFORM), fiber)
+    LOCAL_CFLAGS += -DTARGET_BOARD_FIBER
+endif
+
 LOCAL_SHARED_LIBRARIES += \
         libstagefright_enc_common \
         libstagefright_avc_common \

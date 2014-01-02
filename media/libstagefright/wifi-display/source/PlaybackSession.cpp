@@ -563,6 +563,22 @@ void WifiDisplaySource::PlaybackSession::onMessageReceived(
                         converter->dropAFrame();
                     }
                 }
+#ifdef TARGET_BOARD_FIBER
+            } else if (what == MediaSender::kWhatBitrateChange) {
+                int32_t encoderBitrate;
+                CHECK(msg->findInt32("encoderBitrate", &encoderBitrate));
+                ALOGV("Set Encoder Bitrate[%d]", encoderBitrate);
+                //trackIndex 0 is video and 1 is audio, ignore audio!
+                for (size_t i = 0; i < mTracks.size(); ++i) {
+                    const sp<Converter> &converter =
+                        mTracks.valueAt(i)->converter();
+                    converter->setEncoderBitrate(encoderBitrate);
+                    if(i == 0) {
+                        ALOGV("just set video encoder bitrate.");
+                        break;
+                    }
+                }
+#endif
             } else if (what == MediaSender::kWhatInformSender) {
                 onSinkFeedback(msg);
             } else {

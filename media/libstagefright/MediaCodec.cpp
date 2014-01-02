@@ -397,6 +397,13 @@ status_t MediaCodec::requestIDRFrame() {
     return OK;
 }
 
+#ifdef TARGET_BOARD_FIBER
+status_t MediaCodec::setEncoderBitrate(int32_t bitrate) {
+    if(mCodec == NULL) return NO_INIT;
+    return 0;//mCodec->setEncoderBitrate(bitrate);
+}
+#endif
+
 void MediaCodec::requestActivityNotification(const sp<AMessage> &notify) {
     sp<AMessage> msg = new AMessage(kWhatRequestActivityNotification, id());
     msg->setMessage("notify", notify);

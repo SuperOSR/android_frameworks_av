@@ -61,7 +61,9 @@ struct Converter : public AHandler {
     void signalEOS();
 
     void requestIDRFrame();
-
+#ifdef TARGET_BOARD_FIBER
+    status_t setEncoderBitrate(int32_t bitrate);
+#endif
     void dropAFrame();
     void suspendEncoding(bool suspend);
 
