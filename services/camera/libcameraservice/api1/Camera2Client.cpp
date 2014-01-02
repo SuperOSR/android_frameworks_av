@@ -1286,6 +1286,11 @@ status_t Camera2Client::setParameters(const String8& params) {
 
     return res;
 }
+#ifdef TARGET_BOARD_FIBER
+status_t Camera2Client::setFd(int fd) {
+    return OK;
+}
+#endif
 
 String8 Camera2Client::getParameters() const {
     ATRACE_CALL();
