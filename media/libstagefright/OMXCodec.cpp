@@ -533,10 +533,17 @@ status_t OMXCodec::configureCodec(const sp<MetaData> &meta) {
         // These are PCM-like formats with a fixed sample rate but
         // a variable number of channels.
 
+#ifdef TARGET_BOARD_FIBER
+        int32_t sampleRate;
+        CHECK(meta->findInt32(kKeySampleRate, &sampleRate));
+#endif
         int32_t numChannels;
         CHECK(meta->findInt32(kKeyChannelCount, &numChannels));
-
+#ifdef TARGET_BOARD_FIBER
+        setG711Format(numChannels, sampleRate);
+#else
         setG711Format(numChannels);
+#endif
     } else if (!strcasecmp(MEDIA_MIMETYPE_AUDIO_RAW, mMIME)) {
         CHECK(!mIsEncoder);
 
@@ -1713,6 +1720,17 @@ status_t OMXCodec::allocateOutputBuffersFromNativeWindow() {
         return err;
     }
 
+#ifdef TARGET_BOARD_FIBER
+    if(def.format.video.eColorFormat == OMX_COLOR_FormatYUV420Planar)
+    {
+        err = native_window_set_buffers_geometry(
+                mNativeWindow.get(),
+                def.format.video.nFrameWidth,
+                def.format.video.nFrameHeight,
+                HAL_PIXEL_FORMAT_YV12);
+    }
+    else
+#endif
     err = native_window_set_buffers_geometry(
             mNativeWindow.get(),
             def.format.video.nFrameWidth,
@@ -2448,7 +2466,7 @@ void OMXCodec::onEvent(OMX_EVENTTYPE event, OMX_U32 data1, OMX_U32 data2) {
             break;
         }
 
-#if 0
+#ifndef TARGET_BOARD_FIBER
         case OMX_EventBufferFlag:
         {
             CODEC_LOGV("EVENT_BUFFER_FLAG(%ld)", data1);
@@ -3266,6 +3284,15 @@ status_t OMXCodec::waitForBufferFilled_l() {
     }
     status_t err = mBufferFilled.waitRelative(mLock, kBufferFilledEventTimeOutNs);
     if (err != OK) {
+#ifdef TARGET_BOARD_FIBER
+        //CODEC_LOGE("Timed out waiting for output buffers: %d/%d",
+        //countBuffersWeOwn(mPortBuffers[kPortIndexInput]),
+        //countBuffersWeOwn(mPortBuffers[kPortIndexOutput]));
+        if(countBuffersWeOwn(mPortBuffers[kPortIndexOutput]) > 0) {
+    		return OK;
+    	}
+    	else
+#endif
         CODEC_LOGE("Timed out waiting for output buffers: %d/%d",
             countBuffersWeOwn(mPortBuffers[kPortIndexInput]),
             countBuffersWeOwn(mPortBuffers[kPortIndexOutput]));
@@ -3489,6 +3516,12 @@ status_t OMXCodec::setAACFormat(
     return OK;
 }
 
+#ifdef TARGET_BOARD_FIBER
+void OMXCodec::setG711Format(int32_t numChannels, int32_t sampleRate) {
+    CHECK(!mIsEncoder);
+    setRawAudioFormat(kPortIndexInput, sampleRate, numChannels);
+}
+#endif
 void OMXCodec::setG711Format(int32_t numChannels) {
     CHECK(!mIsEncoder);
     setRawAudioFormat(kPortIndexInput, 8000, numChannels);

@@ -286,7 +286,11 @@ status_t SampleIterator::getSampleSizeDirect(
 }
 
 status_t SampleIterator::findSampleTime(
+#ifdef TARGET_BOARD_FIBER
+        uint32_t sampleIndex, uint64_t *time) {
+#else
         uint32_t sampleIndex, uint32_t *time) {
+#endif
     if (sampleIndex >= mTable->mNumSampleSizes) {
         return ERROR_OUT_OF_RANGE;
     }
@@ -297,7 +301,11 @@ status_t SampleIterator::findSampleTime(
         }
 
         mTTSSampleIndex += mTTSCount;
+#ifdef TARGET_BOARD_FIBER
+        mTTSSampleTime += mTTSCount * (uint64_t)mTTSDuration;
+#else
         mTTSSampleTime += mTTSCount * mTTSDuration;
+#endif
 
         mTTSCount = mTable->mTimeToSample[2 * mTimeToSampleIndex];
         mTTSDuration = mTable->mTimeToSample[2 * mTimeToSampleIndex + 1];
@@ -305,9 +313,15 @@ status_t SampleIterator::findSampleTime(
         ++mTimeToSampleIndex;
     }
 
+#ifdef TARGET_BOARD_FIBER
+    *time = mTTSSampleTime + (uint64_t)mTTSDuration * (sampleIndex - mTTSSampleIndex);
+
+    *time += (int32_t)mTable->getCompositionTimeOffset(sampleIndex);
+#else
     *time = mTTSSampleTime + mTTSDuration * (sampleIndex - mTTSSampleIndex);
 
     *time += mTable->getCompositionTimeOffset(sampleIndex);
+#endif
 
     return OK;
 }
