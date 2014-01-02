@@ -369,20 +369,16 @@ void AMPEG4ElementaryAssembler::submitAccessUnit() {
 
     sp<ABuffer> accessUnit;
 
+#ifndef TARGET_BOARD_FIBER
     if (mIsGeneric) {
         accessUnit = MakeADTSCompoundFromAACFrames(
                 OMX_AUDIO_AACObjectLC - 1,
                 mSampleRateIndex,
                 mChannelConfig,
                 mPackets);
-    } else {
-        accessUnit = MakeCompoundFromPackets(mPackets);
-    }
-
-#if 0
-    printf(mAccessUnitDamaged ? "X" : ".");
-    fflush(stdout);
+    } else
 #endif
+        accessUnit = MakeCompoundFromPackets(mPackets);
 
     if (mAccessUnitDamaged) {
         accessUnit->meta()->setInt32("damaged", true);

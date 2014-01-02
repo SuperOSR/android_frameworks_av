@@ -24,6 +24,10 @@ LOCAL_SHARED_LIBRARIES := \
 
 LOCAL_MODULE:= libstagefright_httplive
 
+ifeq ($(TARGET_BOARD_PLATFORM), fiber)
+    LOCAL_CFLAGS += -DTARGET_BOARD_FIBER
+endif
+
 ifeq ($(TARGET_ARCH),arm)
     LOCAL_CFLAGS += -Wno-psabi
 endif

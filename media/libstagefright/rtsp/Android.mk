@@ -26,33 +26,12 @@ LOCAL_C_INCLUDES:= \
 
 LOCAL_MODULE:= libstagefright_rtsp
 
+ifeq ($(TARGET_BOARD_PLATFORM), fiber)
+    LOCAL_CFLAGS += -DTARGET_BOARD_FIBER
+endif
+
 ifeq ($(TARGET_ARCH),arm)
     LOCAL_CFLAGS += -Wno-psabi
 endif
 
 include $(BUILD_STATIC_LIBRARY)
-
-################################################################################
-
-include $(CLEAR_VARS)
-
-LOCAL_SRC_FILES:=         \
-        rtp_test.cpp
-
-LOCAL_SHARED_LIBRARIES := \
-	libstagefright liblog libutils libbinder libstagefright_foundation
-
-LOCAL_STATIC_LIBRARIES := \
-        libstagefright_rtsp
-
-LOCAL_C_INCLUDES:= \
-	frameworks/av/media/libstagefright \
-	$(TOP)/frameworks/native/include/media/openmax
-
-LOCAL_CFLAGS += -Wno-multichar
-
-LOCAL_MODULE_TAGS := optional
-
-LOCAL_MODULE:= rtp_test
-
-# include $(BUILD_EXECUTABLE)

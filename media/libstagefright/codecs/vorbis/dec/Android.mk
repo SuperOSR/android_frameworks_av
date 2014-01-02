@@ -13,6 +13,10 @@ LOCAL_SHARED_LIBRARIES := \
         libvorbisidec libstagefright libstagefright_omx \
         libstagefright_foundation libutils liblog
 
+ifeq ($(TARGET_BOARD_PLATFORM), fiber)
+    LOCAL_CFLAGS += -DTARGET_BOARD_FIBER
+endif
+
 LOCAL_MODULE := libstagefright_soft_vorbisdec
 LOCAL_MODULE_TAGS := optional
 

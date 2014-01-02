@@ -104,6 +104,11 @@ private:
     virtual OMX_ERRORTYPE setParameter(
             OMX_INDEXTYPE index, const OMX_PTR params);
 
+#ifdef TARGET_BOARD_FIBER
+    virtual OMX_ERRORTYPE getExtensionIndex(
+            const char *name, OMX_INDEXTYPE *index);
+
+#endif
     virtual OMX_ERRORTYPE useBuffer(
             OMX_BUFFERHEADERTYPE **buffer,
             OMX_U32 portIndex,
