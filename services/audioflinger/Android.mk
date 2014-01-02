@@ -57,6 +57,10 @@ LOCAL_SRC_FILES += FastMixer.cpp FastMixerState.cpp AudioWatchdog.cpp
 
 LOCAL_CFLAGS += -DSTATE_QUEUE_INSTANTIATIONS='"StateQueueInstantiations.cpp"'
 
+ifeq ($(TARGET_BOARD_PLATFORM), fiber)
+    LOCAL_CFLAGS += -DTARGET_BOARD_FIBER
+endif
+
 # Define ANDROID_SMP appropriately. Used to get inline tracing fast-path.
 ifeq ($(TARGET_CPU_SMP),true)
     LOCAL_CFLAGS += -DANDROID_SMP=1
@@ -67,28 +71,5 @@ endif
 LOCAL_CFLAGS += -fvisibility=hidden
 
 include $(BUILD_SHARED_LIBRARY)
-
-#
-# build audio resampler test tool
-#
-include $(CLEAR_VARS)
-
-LOCAL_SRC_FILES:=               \
-	test-resample.cpp 			\
-    AudioResampler.cpp.arm      \
-	AudioResamplerCubic.cpp.arm \
-    AudioResamplerSinc.cpp.arm
-
-LOCAL_SHARED_LIBRARIES := \
-    libdl \
-    libcutils \
-    libutils \
-    liblog
-
-LOCAL_MODULE:= test-resample
-
-LOCAL_MODULE_TAGS := optional
-
-include $(BUILD_EXECUTABLE)
 
 include $(call all-makefiles-under,$(LOCAL_PATH))
