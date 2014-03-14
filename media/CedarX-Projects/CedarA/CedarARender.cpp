@@ -20,11 +20,7 @@
 
 #include <binder/IPCThreadState.h>
 #include <media/AudioTrack.h>
-#if (CEDARX_ANDROID_VERSION < 6)
-#include <media/stagefright/MediaDebug.h>
-#else
 #include <media/stagefright/foundation/ADebug.h>
-#endif
 #include <media/stagefright/CedarAAudioPlayer.h>
 #include <media/stagefright/MediaDefs.h>
 #include <media/stagefright/MediaErrors.h>
@@ -79,55 +75,37 @@ status_t CedarAAudioPlayer::start(bool sourceAlreadyStarted)
 
     if (mAudioSink.get() != NULL) {
     	LOGV("AudioPlayer::start 0.1 ]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]");
-#if (CEDARX_ANDROID_VERSION < 7)
-        status_t err = mAudioSink->open(
-#if (CEDARX_ANDROID_VERSION == 4)
-                mSampleRate, mNumChannels, AudioSystem::PCM_16_BIT,
-#else
-                mSampleRate, mNumChannels, AUDIO_FORMAT_PCM_16_BIT,
-#endif
-                DEFAULT_AUDIOSINK_BUFFERCOUNT,
-                &CedarAAudioPlayer::AudioSinkCallback, this);
-#else
         int channelMask = CHANNEL_MASK_USE_CHANNEL_ORDER;
+        /*
         status_t err = mAudioSink->open(
                 mSampleRate, mNumChannels, channelMask, AUDIO_FORMAT_PCM_16_BIT,
                 DEFAULT_AUDIOSINK_BUFFERCOUNT,
                 &CedarAAudioPlayer::AudioSinkCallback,
                 this, AUDIO_OUTPUT_FLAG_NONE);
-#endif
         if (err != OK) {
             return err;
         }
-
+*/
         mLatencyUs = (int64_t)mAudioSink->latency() * 1000;
         mFrameSize = mAudioSink->frameSize();
 
         mAudioSink->start();
     } else {
     	status_t err;
-#if (CEDARX_ANDROID_VERSION < 6)
-        mAudioTrack = new AudioTrack(
-                AudioSystem::MUSIC, mSampleRate, AudioSystem::PCM_16_BIT,
-                (mNumChannels == 2)
-                    ? AudioSystem::CHANNEL_OUT_STEREO
-                    : AudioSystem::CHANNEL_OUT_MONO,
-                0, 0, &AudioCallback, this, 0);
-#else
+    	/*
         mAudioTrack = new AudioTrack(
                 AUDIO_STREAM_MUSIC, mSampleRate, AUDIO_FORMAT_PCM_16_BIT,
                 (mNumChannels == 2)
                     ? AUDIO_CHANNEL_OUT_STEREO
                     : AUDIO_CHANNEL_OUT_MONO,
                 0, 0, &AudioCallback, this, 0);
-#endif
         if ((err = mAudioTrack->initCheck()) != OK) {
             delete mAudioTrack;
             mAudioTrack = NULL;
 
             return err;
         }
-
+*/
         mLatencyUs = (int64_t)mAudioTrack->latency() * 1000;
         mFrameSize = mAudioTrack->frameSize();
 
@@ -180,9 +158,7 @@ void CedarAAudioPlayer::reset()
         mAudioSink->close();
     } else {
         mAudioTrack->stop();
-
-        delete mAudioTrack;
-        mAudioTrack = NULL;
+        //mAudioTrack.clear();
     }
 
 

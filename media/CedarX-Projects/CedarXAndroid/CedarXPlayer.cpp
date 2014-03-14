@@ -19,12 +19,11 @@
 #include <CDX_Debug.h>
 
 #include <dlfcn.h>
-#if (CEDARX_ANDROID_VERSION >= 7)
 #include <utils/Trace.h>
-#endif 
 #include "CedarXPlayer.h"
 #include "CedarXNativeRenderer.h"
 #include "CedarXSoftwareRenderer.h"
+#include "virtual_hwcomposer.h"
 
 #include <CDX_ErrorType.h>
 #include <CDX_Config.h>
@@ -38,25 +37,15 @@
 #include <media/stagefright/MediaBuffer.h>
 #include <media/stagefright/MediaDefs.h>
 #include <media/stagefright/MediaExtractor.h>
-#if (CEDARX_ANDROID_VERSION < 7)
-#include <media/stagefright/MediaDebug.h>
 #include <media/stagefright/foundation/ADebug.h>
-#else
-#include <media/stagefright/foundation/ADebug.h>
-#endif
 #include <media/stagefright/MediaSource.h>
 #include <media/stagefright/MetaData.h>
 #include <media/stagefright/foundation/ALooper.h>
 
 #include <AwesomePlayer.h>
 
-#if (CEDARX_ANDROID_VERSION < 7)
-#include <surfaceflinger/Surface.h>
-#include <surfaceflinger/ISurfaceComposer.h>
-#endif
-
 #include <gui/IGraphicBufferProducer.h>
-#include <gui/SurfaceTextureClient.h>
+#include <gui/Surface.h>
 
 #include <include_sft/StreamingSource.h>
 
@@ -154,62 +143,6 @@ private:
     CedarXLocalRenderer &operator=(const CedarXLocalRenderer &);;
 };
 
-#if 0
-#define GET_CALLING_PID	(IPCThreadState::self()->getCallingPid())
-static int getCallingProcessName(char *name)
-{
-	char proc_node[128];
-
-	if (name == 0)
-	{
-		LOGE("error in params");
-		return -1;
-	}
-	
-	memset(proc_node, 0, sizeof(proc_node));
-	sprintf(proc_node, "/proc/%d/cmdline", GET_CALLING_PID);
-	int fp = ::open(proc_node, O_RDONLY);
-	if (fp > 0) 
-	{
-		memset(name, 0, 128);
-		::read(fp, name, 128);
-		::close(fp);
-		fp = 0;
-		LOGV("Calling process is: %s", name);
-        return OK;
-	}
-	else 
-	{
-		LOGE("Obtain calling process failed");
-        return -1;
-    }
-}
-
-int IfContextNeedGPURender()
-{
-    int GPURenderFlag = 0;
-    int ret;
-    char mCallingProcessName[128];    
-    memset(mCallingProcessName, 0, sizeof(mCallingProcessName));	
-    ret = getCallingProcessName(mCallingProcessName);	
-    if(ret != OK)
-    {
-        return 0;
-    }
-    //LOGD("~~~~~ mCallingProcessName %s", mCallingProcessName);
-
-    if (strcmp(mCallingProcessName, "com.google.android.youtube") == 0)
-    {           
-        LOGV("context is youtube");
-        GPURenderFlag = 1;
-    }
-    else
-    {
-        GPURenderFlag = 0;
-    }
-    return GPURenderFlag;
-}
-#endif
 CedarXPlayer::CedarXPlayer() :
 	mQueueStarted(false), mVideoRendererIsPreview(false), mSftSource(NULL),
 	mAudioPlayer(NULL), mFlags(0), mExtractorFlags(0), mCanSeek(0){
@@ -222,7 +155,7 @@ CedarXPlayer::CedarXPlayer() :
 	memset(mExtendMember, 0, sizeof(CedarXPlayerExtendMember));
 
 	reset_l();
-	CDXPlayer_Create((void**)&mPlayer);
+	//CDXPlayer_Create((void**)&mPlayer);
     
 //    pCedarXPlayerAdapter = new CedarXPlayerAdapter(this);
 //    if(NULL == pCedarXPlayerAdapter)
@@ -273,7 +206,7 @@ CedarXPlayer::~CedarXPlayer() {
 
 	if(isCedarXInitialized){
 		mPlayer->control(mPlayer, CDX_CMD_STOP_ASYNC, 0, 0);
-		CDXPlayer_Destroy(mPlayer);
+		//CDXPlayer_Destroy(mPlayer);
 		mPlayer = NULL;
 		isCedarXInitialized = false;
 	}
@@ -370,10 +303,10 @@ status_t CedarXPlayer::setDataSource(const sp<IStreamSource> &source) {
 	RefBase *refValue;
 	//Mutex::Autolock autoLock(mLock);
 	LOGV("CedarXPlayer::setDataSource stream");
-
+/*
 	mSftSource = new StreamingSource(source);
 	refValue = mSftSource.get();
-
+*/
 	mSourceType = SOURCETYPE_SFT_STREAM;
 	mPlayer->control(mPlayer, CDX_SET_DATASOURCE_SFT_STREAM, (unsigned int)refValue, 0);
 	return OK;
@@ -485,7 +418,7 @@ void CedarXPlayer::reset() {
 
 		if (isCedarXInitialized) {
 			mPlayer->control(mPlayer, CDX_CMD_STOP_ASYNC, 0, 0);
-			CDXPlayer_Destroy(mPlayer);
+			//CDXPlayer_Destroy(mPlayer);
 			mPlayer = NULL;
 			isCedarXInitialized = false;
 		}
@@ -839,12 +772,6 @@ status_t CedarXPlayer::pause() {
 		return mAwesomePlayer->pause();
 	}
 
-#if 0
-	mFlags &= ~CACHE_UNDERRUN;
-	mPlayer->control(mPlayer, CDX_CMD_PAUSE, 0, 0);
-
-	return pause_l(false);
-#else
 	if (!(mFlags & PLAYING)) {
 		return OK;
 	}
@@ -853,7 +780,6 @@ status_t CedarXPlayer::pause() {
 	mPlayer->control(mPlayer, CDX_CMD_PAUSE_ASYNC, 0, 0);
 
 	return OK;
-#endif
 }
 
 status_t CedarXPlayer::pause_l(bool at_eos) {
@@ -907,14 +833,6 @@ status_t CedarXPlayer::setNativeWindow_l(const sp<ANativeWindow> &native) {
             mRenderToDE = 0;
 			outputSetting |= CEDARX_OUTPUT_SETTING_MODE_PLANNER;
 		}
-#if 0
-        else if(IfContextNeedGPURender())
-        {
-            LOGI("use render GPU context need!");
-            mRenderToDE = 0;
-            outputSetting |= CEDARX_OUTPUT_SETTING_MODE_PLANNER;
-        }
-#endif
 		else {
 			if (gHardwareLayerRefCounter < MAX_HARDWARE_LAYER_SUPPORT) {
                 LOGI("use render HW");
@@ -922,16 +840,11 @@ status_t CedarXPlayer::setNativeWindow_l(const sp<ANativeWindow> &native) {
 				gHardwareLayerRefCounter++;
 				mExtendMember->mUseHardwareLayer = 1;
 
-            #if (defined(__CHIP_VERSION_F23) || defined(__CHIP_VERSION_F51)) //a31 temp change to this, because of vertical screen
-            #elif defined(__CHIP_VERSION_F33)
                 if(TEST_FORCE_VDEC_YV12_OUTPUT)
                 {
                     LOGI("test_force_vdec_yv12_output");
                     outputSetting |= CEDARX_OUTPUT_SETTING_MODE_PLANNER;
                 }
-            #else
-                #error "Unknown chip type!"
-            #endif
 			}
 			else {
 				LOGI("use render GPU 1");
@@ -1018,12 +931,10 @@ status_t CedarXPlayer::setSurface(const sp<Surface> &surface) {
 }
 
 status_t CedarXPlayer::setSurfaceTexture(const sp<IGraphicBufferProducer> &bufferProducer) {
-    //Mutex::Autolock autoLock(mLock);
-
-    //mSurface.clear();
     LOGV("(f:%s, l:%d) surfaceTexture_p=%p", __FUNCTION__, __LINE__, surfaceTexture.get());
 
     status_t err;
+    /*
     if (surfaceTexture != NULL) {
         LOGV("(f:%s, l:%d) surfaceTexture!=NULL", __FUNCTION__, __LINE__);
         err = setNativeWindow_l(new SurfaceTextureClient(surfaceTexture));
@@ -1031,7 +942,7 @@ status_t CedarXPlayer::setSurfaceTexture(const sp<IGraphicBufferProducer> &buffe
         LOGV("(f:%s, l:%d) surfaceTexture==NULL", __FUNCTION__, __LINE__);
         err = setNativeWindow_l(NULL);
     }
-
+*/
     return err;
 }
 
@@ -1282,17 +1193,15 @@ status_t CedarXPlayer::prepareAsync() {
 		return UNKNOWN_ERROR; // async prepare already pending
 	}
 
-	property_get(PROP_CHIP_VERSION_KEY, prop_value, "3");
+	//property_get(PROP_CHIP_VERSION_KEY, prop_value, "3");
 	mPlayer->control(mPlayer, CDX_CMD_SET_SOFT_CHIP_VERSION, atoi(prop_value), 0);
 
-#if 1
 	if (atoi(prop_value) == 5) {
-		property_get(PROP_CONSTRAINT_RES_KEY, prop_value, "1");
+		//property_get(PROP_CONSTRAINT_RES_KEY, prop_value, "1");
 		if (atoi(prop_value) == 1) {
 			mPlayer->control(mPlayer, CDX_CMD_SET_MAX_RESOLUTION, 1288<<16 | 1288, 0);
 		}
 	}
-#endif
 
 	if (mSourceType == SOURCETYPE_SFT_STREAM) {
 		notifyListener_l(MEDIA_PREPARED);
@@ -1317,14 +1226,6 @@ status_t CedarXPlayer::prepareAsync() {
             mRenderToDE = 0;
 			outputSetting |= CEDARX_OUTPUT_SETTING_MODE_PLANNER;
 		}
-#if 0
-        else if(IfContextNeedGPURender())
-        {
-            LOGI("use render GPU context need!");
-            mRenderToDE = 0;
-            outputSetting |= CEDARX_OUTPUT_SETTING_MODE_PLANNER;
-        }
-#endif
 		else {
 			if (gHardwareLayerRefCounter < MAX_HARDWARE_LAYER_SUPPORT) {
                 LOGI("use render HW");
@@ -1332,16 +1233,11 @@ status_t CedarXPlayer::prepareAsync() {
 				gHardwareLayerRefCounter++;
 				mExtendMember->mUseHardwareLayer = 1;
 
-            #if (defined(__CHIP_VERSION_F23) || defined(__CHIP_VERSION_F51)) //a31 temp change to this, because of vertical screen
-            #elif defined(__CHIP_VERSION_F33)
                 if(TEST_FORCE_VDEC_YV12_OUTPUT)
                 {
                     LOGI("test_force_vdec_yv12_output");
                     outputSetting |= CEDARX_OUTPUT_SETTING_MODE_PLANNER;
                 }
-            #else
-                #error "Unknown chip type!"
-            #endif
 			}
 			else {
 				LOGI("use render GPU 1");
@@ -1372,16 +1268,7 @@ status_t CedarXPlayer::prepareAsync() {
         }
 	}
 
-//	mMaxOutputWidth = 720;
-//	mMaxOutputHeight = 576;
-
 	//scale down in decoder when using GPU
-#if 0 //* chenxiaochuan. We need not to limite the picture size because pixel format is transformed by decoder.
-	if(outputSetting & CEDARX_OUTPUT_SETTING_MODE_PLANNER) {
-		mMaxOutputWidth  = (mMaxOutputWidth > 1280 || mMaxOutputWidth <= 0) ? 1280 : mMaxOutputWidth;
-		mMaxOutputHeight = (mMaxOutputHeight > 720 || mMaxOutputHeight <= 0) ? 720 : mMaxOutputHeight;
-	}
-#endif
 
 	if(mMaxOutputWidth && mMaxOutputHeight) {
 		LOGV("Max ouput size %dX%d", mMaxOutputWidth, mMaxOutputHeight);
@@ -1389,12 +1276,6 @@ status_t CedarXPlayer::prepareAsync() {
 		mPlayer->control(mPlayer, CDX_CMD_SET_VIDEO_MAXHEIGHT, mMaxOutputHeight, 0);
 	}
 
-#if 0
-	disable_media_type |= CDX_MEDIA_TYPE_DISABLE_MPG | CDX_MEDIA_TYPE_DISABLE_TS | CDX_MEDIA_TYPE_DISABLE_ASF;
-	disable_media_type |= CDX_CODEC_TYPE_DISABLE_MPEG2 | CDX_CODEC_TYPE_DISABLE_VC1;
-	disable_media_type |= CDX_CODEC_TYPE_DISABLE_WMA;
-	mPlayer->control(mPlayer, CDX_CMD_DISABLE_MEDIA_TYPE, disable_media_type, 0);
-#endif
 
 	//mPlayer->control(mPlayer, CDX_SET_THIRDPART_STREAM, CEDARX_THIRDPART_STREAM_USER0, 0);
 	//mPlayer->control(mPlayer, CDX_SET_THIRDPART_STREAM, CEDARX_THIRDPART_STREAM_USER0, CDX_MEDIA_FILE_FMT_AVI);
@@ -1487,7 +1368,7 @@ status_t CedarXPlayer::suspend() {
 
 	if(isCedarXInitialized){
 		mPlayer->control(mPlayer, CDX_CMD_STOP_ASYNC, 0, 0);
-		CDXPlayer_Destroy(mPlayer);
+		//CDXPlayer_Destroy(mPlayer);
 		mPlayer = NULL;
 		isCedarXInitialized = false;
 	}
@@ -1522,7 +1403,7 @@ status_t CedarXPlayer::resume() {
     }
 
     if(mPlayer == NULL){
-    	CDXPlayer_Create((void**)&mPlayer);
+    	//CDXPlayer_Create((void**)&mPlayer);
     	mPlayer->control(mPlayer, CDX_CMD_REGISTER_CALLBACK, (unsigned int)&CedarXPlayerCallbackWrapper, (unsigned int)this);
     	isCedarXInitialized = true;
     }
@@ -1574,15 +1455,7 @@ status_t CedarXPlayer::setScreen(int screen) {
 	mScreenID = screen;
 	LOGV("CedarX will setScreen to:%d", screen);
 	if(mVideoRenderer != NULL && !(mFlags & SUSPENDING)){
-#if (CEDARX_ANDROID_VERSION == 6 && CEDARX_ADAPTER_VERSION == 4)
-        LOGW("CedarX setScreen to:%d", screen);
-        return mVideoRenderer->control(VIDEORENDER_CMD_SETSCREEN, screen);
-#elif (CEDARX_ANDROID_VERSION >= 6)
         return OK; //no need to setscreen from android4.0 v1.5 version
-#else
-    #error "Unknown chip type!"
-#endif
-		//return pCedarXPlayerAdapter->CedarXPlayerAdapterIoCtrl(CEDARXPLAYERADAPTER_CMD_SETSCREEN_SPECIALPROCESS, screen, NULL);
 	}
 	return UNKNOWN_ERROR;
 }
@@ -2236,7 +2109,6 @@ status_t CedarXPlayer::generalInterface(int cmd, int int1, int int2, int int3, v
 		*((int*)p) = mExtendMember->mUseHardwareLayer;
 		break;
 
-#ifdef MEDIAPLAYER_CMD_SET_ROTATION
 	case MEDIAPLAYER_CMD_SET_ROTATION:
 	{
         LOGD("call CedarXPlayer dynamic MEDIAPLAYER_CMD_SET_ROTATION! anti-clock rotate=%d", int1);
@@ -2303,8 +2175,6 @@ status_t CedarXPlayer::generalInterface(int cmd, int int1, int int2, int int3, v
         }
 		break;
 	}
-#endif
-#ifdef MEDIAPLAYER_CMD_SET_INIT_ROTATION
     case MEDIAPLAYER_CMD_SET_INIT_ROTATION:
 	{
         LOGD("call CedarXPlayer init MEDIAPLAYER_CMD_SET_INIT_ROTATION! anti-clock rotate=%d", int1);
@@ -2345,7 +2215,6 @@ status_t CedarXPlayer::generalInterface(int cmd, int int1, int int2, int int3, v
         }
 		break;
 	}
-#endif
 
 	default:
 		break;
@@ -2371,11 +2240,6 @@ int CedarXPlayer::nativeSuspend()
 		LOGV("nativeSuspend may fail, I'am still playing");
 		return -1;
 	}
-
-//	if(mPlayer != NULL){
-//		LOGV("I'm force to quit!");
-//		mPlayer->control(mPlayer, CDX_CMD_STOP_ASYNC, 0, 0);
-//	}
 
 	suspend();
 
@@ -2408,7 +2272,6 @@ status_t CedarXPlayer::setVideoScalingMode_l(int32_t mode) {
     return OK;
 }
 
-#if (CEDARX_ANDROID_VERSION >= 7)
 /*
  * add by weihongqiang
  * the three functions below are useless at moment.
@@ -2583,37 +2446,6 @@ status_t CedarXPlayer::invoke(const Parcel &request, Parcel *reply) {
     // It will not reach here.
     return OK;
 }
-#endif
-
-#if 0
-
-static int g_dummy_render_frame_id_last = -1;
-static int g_dummy_render_frame_id_curr = -1;
-
-int CedarXPlayer::StagefrightVideoRenderInit(int width, int height, int format, void *frame_info)
-{
-	g_dummy_render_frame_id_last = -1;
-	g_dummy_render_frame_id_curr = -1;
-	return 0;
-}
-
-void CedarXPlayer::StagefrightVideoRenderData(void *frame_info, int frame_id)
-{
-	g_dummy_render_frame_id_last = g_dummy_render_frame_id_curr;
-	g_dummy_render_frame_id_curr = frame_id;
-	return ;
-}
-
-int CedarXPlayer::StagefrightVideoRenderGetFrameID()
-{
-	return g_dummy_render_frame_id_last;
-}
-
-void CedarXPlayer::StagefrightVideoRenderExit()
-{
-}
-
-#else
 
 int CedarXPlayer::StagefrightVideoRenderInit(int width, int height, int format, void *frame_info)
 {
@@ -2629,19 +2461,6 @@ int CedarXPlayer::StagefrightVideoRenderInit(int width, int height, int format, 
     }
 	mFirstFrame 	= 1;
 
-//    if(format == CEDARV_PIXEL_FORMAT_MB_UV_COMBINE_YUV422)
-//	    mDisplayFormat = (int32_t)HWC_FORMAT_MBYUV422;
-//	else if(format == CEDARV_PIXEL_FORMAT_PLANNER_YVU420)
-//	    mDisplayFormat = (int32_t)HWC_FORMAT_YUV420PLANAR;//(int32_t)HAL_PIXEL_FORMAT_YV12;
-//	else
-//    {
-//        LOGW("(f:%s, l:%d) fatal error! width=%d, height=%d", __FUNCTION__, __LINE__, width, height);
-//	    mDisplayFormat = HWC_FORMAT_MBYUV420;    //* format should be CEDARV_PIXEL_FORMAT_MB_UV_COMBINED_YUV420
-//	    
-//	}
-    //* other case like 'CEDARV_PIXEL_FORMAT_PLANNER_YUV420', 'CEDARV_PIXEL_FORMAT_RGB888'
-	//* are ignored here. There are currently not used yet. 
-	//* To Be Done.
     if(format == CEDARV_PIXEL_FORMAT_PLANNER_YVU420)
     {
         mDisplayFormat = VIRTUAL_HWC_FORMAT_YUV420PLANAR;   //HWC_FORMAT_YUV420PLANAR, (int32_t)HAL_PIXEL_FORMAT_YV12
@@ -2667,31 +2486,6 @@ int CedarXPlayer::StagefrightVideoRenderInit(int width, int height, int format, 
 			nAppVideoHeight = width;
         }
     }
-    else
-    {
-#if (defined(__CHIP_VERSION_F23) || (defined(__CHIP_VERSION_F51)))
-  #if (1 == ADAPT_A10_GPU_RENDER)
-        int nGpuBufWidth, nGpuBufHeight;
-        nGpuBufWidth = (nAppVideoWidth + 15) & ~15;
-        nGpuBufHeight = nAppVideoHeight;
-        //A10's GPU has a bug, we can avoid it
-        if(nGpuBufHeight%8 != 0)
-        {
-            if((nGpuBufWidth*nGpuBufHeight)%256 != 0)
-            {   // ������-��.avi, 800*450
-                nGpuBufHeight = (nGpuBufHeight+7)&~7;
-                LOGW("(f:%s, l:%d) the video height to tell app, change from [%d] to [%d]", __FUNCTION__, __LINE__, nAppVideoHeight, nGpuBufHeight);
-            }
-        }
-        nAppVideoHeight = nGpuBufHeight;
-        //nAppVideoWidth = nGpuBufWidth;
-  #endif
-#elif defined(__CHIP_VERSION_F33)
-#else
-        #error "Unknown chip type!"
-#endif
-    }
-    
 
 	if(mVideoWidth!=nAppVideoWidth ||  mVideoHeight!=nAppVideoHeight)
 	{
@@ -2744,16 +2538,6 @@ int CedarXPlayer::StagefrightVideoRenderInit(int width, int height, int format, 
         set3DMode(_3d_mode, display_3d_mode);
     }
     setVideoScalingMode_l(mVideoScalingMode);
-
-//	if(frm_inf->rotate_angle != 0)
-//    {
-//		crop.top = frm_inf->top_offset;
-//		crop.left = frm_inf->left_offset;
-//		crop.right = frm_inf->display_width + frm_inf->left_offset;
-//		crop.bottom = frm_inf->display_height + frm_inf->top_offset;
-//
-//		mVideoRenderer->control(VIDEORENDER_CMD_SET_CROP, (int)&crop);
-//    }
 
     return 0;
 }
@@ -2816,7 +2600,6 @@ _render_again:
 			}
 		}
 
-#if 1
 		if(v3d_width * v3d_height != mVideo3dInfo.width * mVideo3dInfo.height)
 		{
             LOGW("resolution has changed! frm_inf->display_width[%d],frm_inf->display_height[%d],mVideo3dInfo.width[%d],mVideo3dInfo.height[%d]",
@@ -2832,7 +2615,6 @@ _render_again:
             LOGD("(f:%s, l:%d), delay sometime to wait hw", __FUNCTION__, __LINE__);
             //usleep(50*1000);
 		}
-#endif
         //LOGD("(f:%s, l:%d) mDisplayFormat=[0x%x], frm_inf->pixel_format=[0x%x]", __FUNCTION__, __LINE__, mDisplayFormat, frm_inf->pixel_format);
 		if(mDisplayFormat != VIRTUAL_HWC_FORMAT_YUV420PLANAR)//HAL_PIXEL_FORMAT_YV12)
 		{
@@ -2868,12 +2650,10 @@ _render_again:
             
 			virtual_overlay_para.bProgressiveSrc = frm_inf->is_progressive;
 			virtual_overlay_para.bTopFieldFirst = frm_inf->top_field_first;
-#if 1 //deinterlace support
 			virtual_overlay_para.flag_addr              = frm_inf->flag_addr;
 			virtual_overlay_para.flag_stride            = frm_inf->flag_stride;
 			virtual_overlay_para.maf_valid              = frm_inf->maf_valid;
 			virtual_overlay_para.pre_frame_valid        = frm_inf->pre_frame_valid;
-#endif
             virtual_overlay_para.top_y  = (unsigned int)frm_inf->y;
             virtual_overlay_para.top_u  = (unsigned int)frm_inf->u;
             virtual_overlay_para.top_v  = (unsigned int)frm_inf->v;
@@ -2888,10 +2668,8 @@ _render_again:
 			{
 				mVideoRenderer->control(VIDEORENDER_CMD_SHOW, 1);
 				mFirstFrame = 0;
-#if (CEDARX_ANDROID_VERSION >= 8)
 				//add by weihongqiang.
 				notifyListener_l(MEDIA_INFO, MEDIA_INFO_RENDERING_START);
-#endif
 			}
 		}
 		else
@@ -2925,12 +2703,10 @@ _render_again:
 
 			virtual_overlay_para.bProgressiveSrc = frm_inf->is_progressive;
 			virtual_overlay_para.bTopFieldFirst = frm_inf->top_field_first;
-#if 1 //deinterlace support
 			virtual_overlay_para.flag_addr              = frm_inf->flag_addr;
 			virtual_overlay_para.flag_stride            = frm_inf->flag_stride;
 			virtual_overlay_para.maf_valid              = frm_inf->maf_valid;
 			virtual_overlay_para.pre_frame_valid        = frm_inf->pre_frame_valid;
-#endif
 			virtual_overlay_para.top_y          = (unsigned int)frm_inf->y;
 			virtual_overlay_para.top_v 			= (unsigned int)frm_inf->v;
 			virtual_overlay_para.top_u 			= (unsigned int)frm_inf->u;
@@ -2950,10 +2726,8 @@ _render_again:
 	                    mVideoRenderer->control(VIDEORENDER_CMD_SETLAYERORDER, 0);
 	                }
 				}
-			#if (CEDARX_ANDROID_VERSION >= 8)
 				//add by weihongqiang.
 				notifyListener_l(MEDIA_INFO, MEDIA_INFO_RENDERING_START);
-			#endif
 				mFirstFrame = 0;
 			}
 
@@ -2990,12 +2764,9 @@ _render_again:
 		    	mVideoRenderer = new CedarXDirectHwRenderer(mNativeWindow, meta);
 		    	set3DMode(_3d_mode, display_3d_mode);
 		    }
+		    /*
 		    else
 		    {
-            #if (defined(__CHIP_VERSION_F23) || defined(__CHIP_VERSION_F51) || defined(__CHIP_VERSION_F33)) //a31 temp change to this, because of vertical screen
-                mRenderToDE = 0;
-		        mVideoRenderer = new CedarXLocalRenderer(mNativeWindow, meta);
-            #elif defined(__CHIP_VERSION_F33)
                 if (0 == mNativeWindow->perform(mNativeWindow.get(), NATIVE_WINDOW_GETPARAMETER,NATIVE_WINDOW_CMD_GET_SURFACE_TEXTURE_TYPE, 0)
                     || TEST_FORCE_GPU_RENDER)
 		    	{
@@ -3010,12 +2781,9 @@ _render_again:
 		    		mFirstFrame = 1;
 		    		mVideoRenderer = new CedarXDirectHwRenderer(mNativeWindow, meta);
 		    	}
-            #else
-                #error "Unknown chip type!"
-            #endif
 				set3DMode(_3d_mode, display_3d_mode);
 		    }
-
+*/
 		    goto _render_again;
 		}
 	}
@@ -3076,7 +2844,6 @@ _render_again:
 			}
 		}
 
-#if 1
 		if(frm_inf->display_width * frm_inf->display_height != mVideo3dInfo.width * mVideo3dInfo.height)
 		{
             LOGW("resolution has changed! frm_inf->display_width[%d],frm_inf->display_height[%d],mVideo3dInfo.width[%d],mVideo3dInfo.height[%d]",
@@ -3092,7 +2859,6 @@ _render_again:
             LOGD("(f:%s, l:%d), delay sometime to wait hw", __FUNCTION__, __LINE__);
             //usleep(50*1000);
 		}
-#endif
         //LOGD("(f:%s, l:%d) mDisplayFormat=[0x%x], frm_inf->pixel_format=[0x%x]", __FUNCTION__, __LINE__, mDisplayFormat, frm_inf->pixel_format);
 		if(mDisplayFormat != VIRTUAL_HWC_FORMAT_YUV420PLANAR)//HWC_FORMAT_YUV420PLANAR, HAL_PIXEL_FORMAT_YV12)
 		{
@@ -3129,12 +2895,10 @@ _render_again:
             
 			virtual_overlay_para.bProgressiveSrc = frm_inf->is_progressive;
 			virtual_overlay_para.bTopFieldFirst = frm_inf->top_field_first;
-#if 1 //deinterlace support
 			virtual_overlay_para.flag_addr              = frm_inf->flag_addr;
 			virtual_overlay_para.flag_stride            = frm_inf->flag_stride;
 			virtual_overlay_para.maf_valid              = frm_inf->maf_valid;
 			virtual_overlay_para.pre_frame_valid        = frm_inf->pre_frame_valid;
-#endif
             virtual_overlay_para.top_y  = (unsigned int)frm_inf->y;
             virtual_overlay_para.top_u  = (unsigned int)frm_inf->u;
             virtual_overlay_para.top_v  = (unsigned int)frm_inf->v;
@@ -3149,10 +2913,8 @@ _render_again:
 			{
 				mVideoRenderer->control(VIDEORENDER_CMD_SHOW, 1);
 				mFirstFrame = 0;
-				#if (CEDARX_ANDROID_VERSION >= 8)
 					//add by weihongqiang.
 					notifyListener_l(MEDIA_INFO, MEDIA_INFO_RENDERING_START);
-				#endif
 			}
 		}
 		else
@@ -3186,12 +2948,10 @@ _render_again:
 
 			virtual_overlay_para.bProgressiveSrc = frm_inf->is_progressive;
 			virtual_overlay_para.bTopFieldFirst = frm_inf->top_field_first;
-#if 1 //deinterlace support
 			virtual_overlay_para.flag_addr              = frm_inf->flag_addr;
 			virtual_overlay_para.flag_stride            = frm_inf->flag_stride;
 			virtual_overlay_para.maf_valid              = frm_inf->maf_valid;
 			virtual_overlay_para.pre_frame_valid        = frm_inf->pre_frame_valid;
-#endif
 			virtual_overlay_para.top_y          = (unsigned int)frm_inf->y;
 			virtual_overlay_para.top_v 			= (unsigned int)frm_inf->v;
 			virtual_overlay_para.top_u 			= (unsigned int)frm_inf->u;
@@ -3211,10 +2971,8 @@ _render_again:
 	                    mVideoRenderer->control(VIDEORENDER_CMD_SETLAYERORDER, 0);
 	                }
 				}
-			#if (CEDARX_ANDROID_VERSION >= 8)
 				//add by weihongqiang.
 				notifyListener_l(MEDIA_INFO, MEDIA_INFO_RENDERING_START);
-			#endif
 				mFirstFrame = 0;
 			}
             //LOGV("render frame id:%d",frame_id);
@@ -3223,10 +2981,6 @@ _render_again:
 	}
 	else
 	{
-		//if (mDisplayFormat == HAL_PIXEL_FORMAT_YV12)
-		//{
-		//	mLocalRenderFrameIDCurr = frame_id;
-		//}
         LOGD("(f:%s, l:%d) mVideoRenderer=NULL, mNativeWindow=[%p]", __FUNCTION__, __LINE__, mNativeWindow.get());
 		if (mNativeWindow != NULL)
 		{
@@ -3248,12 +3002,9 @@ _render_again:
 		    	mVideoRenderer = new CedarXDirectHwRenderer(mNativeWindow, meta);
 		    	set3DMode(_3d_mode, display_3d_mode);
 		    }
+		    /*
 		    else
 		    {
-            #if (defined(__CHIP_VERSION_F23) || defined(__CHIP_VERSION_F51) || defined(__CHIP_VERSION_F33)) //a31 temp change to this, because of vertical screen
-                mRenderToDE = 0;
-		        mVideoRenderer = new CedarXLocalRenderer(mNativeWindow, meta);
-            #elif defined(__CHIP_VERSION_F33)
                 if (0 == mNativeWindow->perform(mNativeWindow.get(), NATIVE_WINDOW_GETPARAMETER,NATIVE_WINDOW_CMD_GET_SURFACE_TEXTURE_TYPE, 0)
                     || TEST_FORCE_GPU_RENDER)
 		    	{
@@ -3268,11 +3019,9 @@ _render_again:
 		    		mFirstFrame = 1;
 		    		mVideoRenderer = new CedarXDirectHwRenderer(mNativeWindow, meta);
 		    	}
-            #else
-                #error "Unknown chip type!"
-            #endif
 				set3DMode(_3d_mode, display_3d_mode);
 		    }
+		    */
             setVideoScalingMode_l(mVideoScalingMode);
 		    goto _render_again;
 		}
@@ -3296,8 +3045,6 @@ int CedarXPlayer::StagefrightVideoRenderEnqueueFrame(ANativeWindowBufferCedarXWr
     ret = mVideoRenderer->enqueueFrame(pANativeWindowBuffer);
     return ret;
 }
-
-#endif
 
 int CedarXPlayer::StagefrightAudioRenderInit(int samplerate, int channels, int format)
 {
@@ -3610,7 +3357,7 @@ int CedarXPlayer::CedarXPlayerCallback(int event, void *info)
         }
         else
         {
-    	
+/*
         	if (para[0])
         	{
         		LOGV("[star]............ to set raw data output");
@@ -3621,13 +3368,13 @@ int CedarXPlayer::CedarXPlayerCallback(int event, void *info)
         		LOGV("[star]............ to set not raw data output");
             	af->setParameters(0, raw0);
         	}
+        	*/
         }
     	
         IPCThreadState::self()->restoreCallingIdentity(token);
     }
         break;
 
-#if (CEDARX_ANDROID_VERSION >= 7)
 	case CDX_EVENT_TIMED_TEXT:
 	{
 		size_t size = 8;
@@ -3656,15 +3403,6 @@ int CedarXPlayer::CedarXPlayerCallback(int event, void *info)
 		}
 	}
 		break;
-#endif
-//	case CDX_MEDIA_INFO_SRC_3D_MODE:
-//		{
-//			cdx_3d_mode_e tmp_3d_mode;
-//			tmp_3d_mode = *((cdx_3d_mode_e *)info);
-//			LOGV("source 3d mode get from parser is %d", tmp_3d_mode);
-//			notifyListener_l(MEDIA_INFO_SRC_3D_MODE, tmp_3d_mode);
-//		}
-//		break;
 
 	default:
 		break;
@@ -3679,246 +3417,3 @@ extern "C" int CedarXPlayerCallbackWrapper(void *cookie, int event, void *info) 
 }
 
 } // namespace android
-
-#if 0 //backup 
-void CedarXPlayer::StagefrightVideoRenderData0(void *frame_info, int frame_id)
-{
-	Mutex::Autolock autoLock(mLockNativeWindow);
-
-_render_again:
-	if(mVideoRenderer != NULL)
-	{
-		cedarv_picture_t *frm_inf = (cedarv_picture_t *) frame_info;
-
-
-//		LOGD("##frm_inf->display_height %d,mVideo3dInfo.height %d",frm_inf->display_height,mVideo3dInfo.height);
-//		if(frm_inf->display_height != mVideo3dInfo.height)
-//		{
-////			LOGD("frm_inf->display_height %d,mDisplayHeight %d",frm_inf->display_height,mDisplayHeight);
-//			if(frm_inf->display_height != (uint32_t)mDisplayHeight)
-//				set3DMode(1);
-//			else
-//				set3DMode(0);
-//		}
-
-#if 1
-		if(frm_inf->display_width * frm_inf->display_height != mVideo3dInfo.width * mVideo3dInfo.height)
-		{
-//			StagefrightVideoRenderExit();
-			StagefrightVideoRenderInit(frm_inf->display_width, frm_inf->display_height, frm_inf->pixel_format, (void *)frm_inf);
-		}
-#endif
-		if(mDisplayFormat != HWC_FORMAT_YUV420PLANAR)//HAL_PIXEL_FORMAT_YV12)
-		{
-			libhwclayerpara_t overlay_para;
-
-			memset(&overlay_para, 0, sizeof(libhwclayerpara_t));
-
-			if(wait_anaglagh_display_change)
-			{
-				LOGV("+++++++++++++ display 3d mode == %d", display_3d_mode);
-				if(display_3d_mode != CEDARX_DISPLAY_3D_MODE_ANAGLAGH)
-				{
-					//* switch on anaglagh display.
-					if(anaglagh_type == (uint32_t)frm_inf->anaglath_transform_mode)
-					{
-						display_3d_mode = CEDARX_DISPLAY_3D_MODE_ANAGLAGH;
-						set3DMode(_3d_mode, display_3d_mode);
-						wait_anaglagh_display_change = 0;
-					}
-				}
-				else
-				{
-					//* switch off anaglagh display.
-					display_3d_mode = display_type_tmp_save;
-					set3DMode(_3d_mode, display_3d_mode);
-					wait_anaglagh_display_change = 0;
-				}
-			}
-
-			overlay_para.bProgressiveSrc = frm_inf->is_progressive;
-			overlay_para.bTopFieldFirst = frm_inf->top_field_first;
-#if 1 //deinterlace support
-			overlay_para.flag_addr              = frm_inf->flag_addr;
-			overlay_para.flag_stride            = frm_inf->flag_stride;
-			overlay_para.maf_valid              = frm_inf->maf_valid;
-			overlay_para.pre_frame_valid        = frm_inf->pre_frame_valid;
-#endif
-			if(_3d_mode == CEDARV_3D_MODE_DOUBLE_STREAM && display_3d_mode == CEDARX_DISPLAY_3D_MODE_3D)
-			{
-            #if defined(__CHIP_VERSION_F23)
-				overlay_para.top_y 		= (unsigned int)frm_inf->y;
-				overlay_para.top_c 		= (unsigned int)frm_inf->u;
-				overlay_para.bottom_y	= (unsigned int)frm_inf->y2;
-				overlay_para.bottom_c	= (unsigned int)frm_inf->u2;
-            #elif defined(__CHIP_VERSION_F33)
-				overlay_para.addr[0] 		  = (unsigned int)frm_inf->y;
-				overlay_para.addr[1] 		  = (unsigned int)frm_inf->u;
-				overlay_para.addr[2] 		  = 0;
-				overlay_para.addr_3d_right[0] = (unsigned int)frm_inf->y2;
-				overlay_para.addr_3d_right[1] = (unsigned int)frm_inf->u2;
-				overlay_para.addr_3d_right[2] = 0;
-            #else
-                #error "Unknown chip type!"
-            #endif
-			}
-			else if(display_3d_mode == CEDARX_DISPLAY_3D_MODE_ANAGLAGH)
-			{
-            #if defined(__CHIP_VERSION_F23)
-				overlay_para.top_y 		= (unsigned int)frm_inf->u2;
-				overlay_para.top_c 		= (unsigned int)frm_inf->y2;
-				overlay_para.bottom_y 	= (unsigned int)frm_inf->v2;
-				overlay_para.bottom_c 	= 0;
-            #elif defined(__CHIP_VERSION_F33)
-				overlay_para.addr[0] = (unsigned int)frm_inf->u2;    //* R
-				overlay_para.addr[1] = (unsigned int)frm_inf->y2;    //* G
-				overlay_para.addr[2] = (unsigned int)frm_inf->v2;    //* B
-				overlay_para.addr_3d_right[0] = 0;
-				overlay_para.addr_3d_right[1] = 0;
-				overlay_para.addr_3d_right[2] = 0;
-            #else
-                #error "Unknown chip type!"
-            #endif
-			}
-			else
-			{
-            #if defined(__CHIP_VERSION_F23)
-				overlay_para.top_y 		= (unsigned int)frm_inf->y;
-				overlay_para.top_c 		= (unsigned int)frm_inf->u;
-				overlay_para.bottom_y 	= 0;
-				overlay_para.bottom_c 	= 0;
-            #elif defined(__CHIP_VERSION_F33)
-				overlay_para.addr[0] 		  = (unsigned int)frm_inf->y;
-				overlay_para.addr[1] 		  = (unsigned int)frm_inf->u;
-				overlay_para.addr[2] 		  = (unsigned int)frm_inf->v;
-				overlay_para.addr_3d_right[0] = 0;
-				overlay_para.addr_3d_right[1] = 0;
-				overlay_para.addr_3d_right[2] = 0;
-            #else
-                #error "Unknown chip type!"
-            #endif
-			}
-
-			overlay_para.number = frame_id;
-			mVideoRenderer->render(&overlay_para, 0);
-			//LOGV("render frame id:%d",frame_id);
-			if(mFirstFrame)
-			{
-				mVideoRenderer->control(VIDEORENDER_CMD_SHOW, 1);
-				mFirstFrame = 0;
-			}
-		}
-		else
-		{
-        #if defined(__CHIP_VERSION_F23)
-			mVideoRenderer->render(frm_inf->y2, frm_inf->size_y2);
-			mLocalRenderFrameIDCurr = frame_id;
-        #elif defined(__CHIP_VERSION_F33)
-			libhwclayerpara_t overlay_para;
-
-			memset(&overlay_para, 0, sizeof(libhwclayerpara_t));
-
-			if(wait_anaglagh_display_change)
-			{
-				LOGV("+++++++++++++ display 3d mode == %d", display_3d_mode);
-				if(display_3d_mode != CEDARX_DISPLAY_3D_MODE_ANAGLAGH)
-				{
-					//* switch on anaglagh display.
-					if(anaglagh_type == (uint32_t)frm_inf->anaglath_transform_mode)
-					{
-						display_3d_mode = CEDARX_DISPLAY_3D_MODE_ANAGLAGH;
-						set3DMode(_3d_mode, display_3d_mode);
-						wait_anaglagh_display_change = 0;
-					}
-				}
-				else
-				{
-					//* switch off anaglagh display.
-					display_3d_mode = display_type_tmp_save;
-					set3DMode(_3d_mode, display_3d_mode);
-					wait_anaglagh_display_change = 0;
-				}
-			}
-
-			overlay_para.bProgressiveSrc = frm_inf->is_progressive;
-			overlay_para.bTopFieldFirst = frm_inf->top_field_first;
-#if 1 //deinterlace support
-			overlay_para.flag_addr              = frm_inf->flag_addr;
-			overlay_para.flag_stride            = frm_inf->flag_stride;
-			overlay_para.maf_valid              = frm_inf->maf_valid;
-			overlay_para.pre_frame_valid        = frm_inf->pre_frame_valid;
-#endif
-			//1633
-			overlay_para.addr[0] 				= (unsigned int)frm_inf->y;
-			overlay_para.addr[1] 				= (unsigned int)frm_inf->v;
-			overlay_para.addr[2] 				= (unsigned int)frm_inf->u;
-			overlay_para.addr_3d_right[0] 		= 0;
-			overlay_para.addr_3d_right[1]	 	= 0;
-			overlay_para.addr_3d_right[2]	 	= 0;
-
-			overlay_para.number = frame_id;
-			mVideoRenderer->render(&overlay_para, 0);
-			//LOGV("render frame id:%d",frame_id);
-			if(mFirstFrame && mRenderToDE)
-			{
-				mVideoRenderer->control(VIDEORENDER_CMD_SHOW, 1);
-				mFirstFrame = 0;
-			}
-
-			mLocalRenderFrameIDCurr = frame_id;
-        #else
-            #error "Unknown chip type!"
-        #endif
-		}
-	}
-	else
-	{
-		//if (mDisplayFormat == HAL_PIXEL_FORMAT_YV12)
-		//{
-		//	mLocalRenderFrameIDCurr = frame_id;
-		//}
-
-		if (mNativeWindow != NULL)
-		{
-			sp<MetaData> meta = new MetaData;
-			meta->setInt32(kKeyScreenID, mScreenID);
-		    meta->setInt32(kKeyColorFormat, mDisplayFormat);
-		    meta->setInt32(kKeyWidth, mDisplayWidth);
-		    meta->setInt32(kKeyHeight, mDisplayHeight);
-
-		    LOGV("reinit mVideoRenderer");
-		    // Must ensure that mVideoRenderer's destructor is actually executed
-		    // before creating a new one.
-		    IPCThreadState::self()->flushCommands();
-
-		    setVideoScalingMode_l(mVideoScalingMode);
-
-		    if(mDisplayFormat != HWC_FORMAT_YUV420PLANAR)//HAL_PIXEL_FORMAT_YV12)
-		    {
-				mRenderToDE = 1;
-	    		mFirstFrame = 1;
-		    	mVideoRenderer = new CedarXDirectHwRenderer(mNativeWindow, meta);
-		    	set3DMode(_3d_mode, display_3d_mode);
-		    }
-		    else
-		    {
-		    	if (0 == mNativeWindow->perform(mNativeWindow.get(), NATIVE_WINDOW_GETPARAMETER,NATIVE_WINDOW_CMD_GET_SURFACE_TEXTURE_TYPE, 0)
-                    || TEST_FORCE_GPU_RENDER)
-		    	{
-					mRenderToDE = 0;
-		    		mVideoRenderer = new CedarXLocalRenderer(mNativeWindow, meta);
-		    	}
-		    	else
-		    	{
-		    		mRenderToDE = 1;
-		    		mFirstFrame = 1;
-		    		mVideoRenderer = new CedarXDirectHwRenderer(mNativeWindow, meta);
-		    	}
-				set3DMode(_3d_mode, display_3d_mode);
-		    }
-
-		    goto _render_again;
-		}
-	}
-}
-#endif

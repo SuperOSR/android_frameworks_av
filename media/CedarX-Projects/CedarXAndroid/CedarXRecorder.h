@@ -107,11 +107,7 @@ public:
 		DeathNotifier() {}
 		virtual void binderDied(const wp<IBinder>& who)
 		{
-#if (CEDARX_ANDROID_VERSION > 6)
 			ALOGI("Camera recording proxy died");
-#else
-			LOGI("Camera recording proxy died");
-#endif
 		}
 	};
 //added by JM.

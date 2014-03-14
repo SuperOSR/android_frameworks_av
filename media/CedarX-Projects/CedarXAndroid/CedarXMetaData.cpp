@@ -17,11 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#if (CEDARX_ANDROID_VERSION < 7)
-#include <media/stagefright/MediaDebug.h>
-#else
 #include <media/stagefright/foundation/ADebug.h>
-#endif
 #include <media/stagefright/MetaData.h>
 
 namespace android {

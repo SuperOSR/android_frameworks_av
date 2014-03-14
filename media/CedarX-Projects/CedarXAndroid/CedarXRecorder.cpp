@@ -17,7 +17,6 @@
 #include <media/stagefright/foundation/ADebug.h>
 #include <MetadataBufferType.h>
 #include <gui/IGraphicBufferProducer.h>
-#include <gui/SurfaceTextureClient.h>
 #include <gui/Surface.h>
 
 #include <media/stagefright/MetaData.h>
@@ -34,12 +33,6 @@
 
 #define F_LOG 	LOGV("%s, line: %d", __FUNCTION__, __LINE__);
 
-#if (CEDARX_ANDROID_VERSION < 7)
-#define OUTPUT_FORMAT_RAW 10
-#define AUDIO_SOURCE_AF 8
-#define MEDIA_RECORDER_VENDOR_EVENT_EMPTY_BUFFER_ID 3000
-#define MEDIA_RECORDER_VENDOR_EVENT_BSFRAME_AVAILABLE 3001
-#endif
 extern "C" int CedarXRecorderCallbackWrapper(void *cookie, int event, void *info);
 
 namespace android {
@@ -347,7 +340,7 @@ status_t CedarXRecorder::isCameraAvailable(
 {
     if (camera == 0) 
 	{
-        mCamera = Camera::connect(cameraId);
+//        mCamera = Camera::connect(cameraId);
         if (mCamera == 0) 
 		{
 			return -EBUSY;
@@ -374,28 +367,23 @@ status_t CedarXRecorder::isCameraAvailable(
 
     // This CHECK is good, since we just passed the lock/unlock
     // check earlier by calling mCamera->setParameters().
+    /*
     if (mPreviewSurface != NULL)
     {
     	CHECK_EQ((status_t)OK, mCamera->setPreviewDisplay(mPreviewSurface));
     }
-
-#if (CEDARX_ANDROID_VERSION == 6 && CEDARX_ADAPTER_VERSION == 4)
-    mCamera->storeMetaDataInBuffers(true);
-#elif (CEDARX_ANDROID_VERSION >= 6)
+*/
     mCamera->sendCommand(CAMERA_CMD_SET_CEDARX_RECORDER, 0, 0);
-#else
-    #error "Unknown chip type!"
-#endif
     mCamera->lock();
 
     return OK;
 }
 
 
-status_t CedarXRecorder::setPreviewSurface(const sp<Surface>& surface)
+status_t CedarXRecorder::setPreviewSurface(const sp<IGraphicBufferProducer>& surface)
 {
     LOGV("setPreviewSurface: %p", surface.get());
-    mPreviewSurface = surface;
+//    mPreviewSurface = surface;
 
     return OK;
 }
@@ -648,58 +636,8 @@ status_t CedarXRecorder::CreateAudioRecorder()
 {
 	CHECK(mAudioChannels == 1 || mAudioChannels == 2);
 	
-#if (CEDARX_ANDROID_VERSION < 7)
-    uint32_t flags = AudioRecord::RECORD_AGC_ENABLE |
-                     AudioRecord::RECORD_NS_ENABLE  |
-                     AudioRecord::RECORD_IIR_ENABLE;
-	
-    mRecord = new AudioRecord(
-                mAudioSource, mSampleRate, AUDIO_FORMAT_PCM_16_BIT,
-                mAudioChannels > 1? AUDIO_CHANNEL_IN_STEREO: AUDIO_CHANNEL_IN_MONO,
-                4 * kMaxBufferSize / sizeof(int16_t), /* Enable ping-pong buffers */
-                flags,
-                NULL,	// AudioRecordCallbackFunction,
-                this);
-	
-#endif
-
-#if (CEDARX_ANDROID_VERSION == 7)
-
     int minFrameCount;
-    audio_channel_mask_t channelMask;
-    status_t status = AudioRecord::getMinFrameCount(&minFrameCount,
-                                           mSampleRate,
-                                           AUDIO_FORMAT_PCM_16_BIT,
-                                           mAudioChannels);
-    if (status == OK) {
-        // make sure that the AudioRecord callback never returns more than the maximum
-        // buffer size
-        int frameCount = kMaxBufferSize / sizeof(int16_t) / mAudioChannels;
-
-        // make sure that the AudioRecord total buffer size is large enough
-        int bufCount = 2;
-        while ((bufCount * frameCount) < minFrameCount) {
-            bufCount++;
-        }
-
-        AudioRecord::record_flags flags = (AudioRecord::record_flags)
-                        (AudioRecord::RECORD_AGC_ENABLE |
-                         AudioRecord::RECORD_NS_ENABLE  |
-                         AudioRecord::RECORD_IIR_ENABLE);
-        mRecord = new AudioRecord(
-                    mAudioSource, mSampleRate, AUDIO_FORMAT_PCM_16_BIT,
-                    audio_channel_in_mask_from_count(mAudioChannels),
-                    bufCount * frameCount,
-                    flags,
-                    NULL,	// AudioRecordCallbackFunction,
-                    this,
-                    frameCount);
-    }
-#endif
-
-#if ((CEDARX_ANDROID_VERSION == 8) || (CEDARX_ANDROID_VERSION == 9))
-    int minFrameCount;
-
+/*
     status_t status = AudioRecord::getMinFrameCount(&minFrameCount,
                                            mSampleRate,
                                            AUDIO_FORMAT_PCM_16_BIT,
@@ -724,8 +662,7 @@ status_t CedarXRecorder::CreateAudioRecorder()
          
     }
 
-#endif
-
+*/
 	if (mRecord == NULL)
 	{
 		LOGE("create AudioRecord failed");
@@ -813,7 +750,7 @@ status_t CedarXRecorder::prepare()
 		}
 	}
 	// CedarX Create
-	CDXRecorder_Create((void**)&mCdxRecorder);
+	//CDXRecorder_Create((void**)&mCdxRecorder);
 	if(mCaptureTimeLapse)
 	{
 			mRecModeFlag &= ~RECORDER_MODE_AUDIO;
@@ -1120,7 +1057,7 @@ status_t CedarXRecorder::stop()
 	}
 
 	mCdxRecorder->control((void*)mCdxRecorder, CDX_CMD_STOP, 0, 0);
-	CDXRecorder_Destroy((void*)mCdxRecorder);
+	//CDXRecorder_Destroy((void*)mCdxRecorder);
 	mCdxRecorder = NULL;
 
 	releaseCamera();
@@ -1132,8 +1069,9 @@ status_t CedarXRecorder::stop()
 			&& mRecord != NULL)
 		{
 			mRecord->stop();
-			delete mRecord;
-			mRecord = NULL;
+			/*
+			mRecord.clear();
+			*/
 			
 		}	
 	}

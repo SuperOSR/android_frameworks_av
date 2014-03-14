@@ -9,13 +9,11 @@ extern "C" {
 
 #include<CDX_MemWatch.h>
 
-#if (CEDARX_ANDROID_VERSION > 6)
 #define LOGV ALOGV
 #define LOGD ALOGD
 #define LOGI ALOGI
 #define LOGW ALOGW
 #define LOGE ALOGE
-#endif
 
 #if 0
 

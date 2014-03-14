@@ -32,7 +32,7 @@
 #include <media/stagefright/MetaData.h>
 
 #include <gui/IGraphicBufferProducer.h>
-#include <gui/SurfaceTextureClient.h>
+#include <gui/Surface.h>
 #include <media/stagefright/foundation/ADebug.h>
 
 #include <media/stagefright/foundation/ALooper.h>
@@ -50,7 +50,7 @@ CedarAPlayer::CedarAPlayer() :
 	LOGV("Construction");
 	reset_l();
 
-	CDADecoder_Create((void**)&mPlayer);
+	//CDADecoder_Create((void**)&mPlayer);
 	mPlayer->control(mPlayer, CDA_CMD_REGISTER_CALLBACK, (unsigned int)&CedarAPlayerCallbackWrapper, (unsigned int)this);
 	isCedarAInitialized = true;
 }
@@ -58,7 +58,7 @@ CedarAPlayer::CedarAPlayer() :
 CedarAPlayer::~CedarAPlayer() {
 
 	if(isCedarAInitialized){
-		CDADecoder_Destroy(mPlayer);
+		//CDADecoder_Destroy(mPlayer);
 		mPlayer = NULL;
 		isCedarAInitialized = false;
 	}
@@ -532,7 +532,7 @@ int CedarAPlayer::CedarAPlayerCallback(int event, void *info)
         }
         else
         {
-    	
+/*
         	if (para[0])
         	{
         		LOGV("[star]............ to set raw data output");
@@ -543,6 +543,7 @@ int CedarAPlayer::CedarAPlayerCallback(int event, void *info)
         		LOGV("[star]............ to set not raw data output");
             	af->setParameters(0, raw0);
         	}
+*/
         }
     	
         IPCThreadState::self()->restoreCallingIdentity(token);

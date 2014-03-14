@@ -47,6 +47,9 @@ public:
 
     virtual status_t                setDataSource(int fd, int64_t offset, int64_t length);
     virtual sp<IMemory>             getFrameAtTime(int64_t timeUs, int option);
+#ifdef TARGET_BOARD_FIBER
+    virtual sp<IMemory>             getStreamAtTime(int64_t timeUs);
+#endif
     virtual sp<IMemory>             extractAlbumArt();
     virtual const char*             extractMetadata(int keyCode);
 

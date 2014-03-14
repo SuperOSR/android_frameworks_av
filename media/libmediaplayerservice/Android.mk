@@ -37,7 +37,17 @@ LOCAL_SRC_FILES:=               \
     SharedLibrary.cpp           \
     StagefrightPlayer.cpp       \
     StagefrightRecorder.cpp     \
-    TestPlayerStub.cpp          \
+    TestPlayerStub.cpp          
+    
+ifeq ($(TARGET_BOARD_PLATFORM), fiber)
+LOCAL_SRC_FILES +=              \
+    CedarPlayer.cpp       		\
+    CedarAPlayerWrapper.cpp		\
+    SimpleMediaFormatProbe.cpp	\
+    MovAvInfoDetect.cpp         \
+    ThumbnailPlayer/tplayer.cpp \
+    ThumbnailPlayer/avtimer.cpp
+endif
 
 LOCAL_SHARED_LIBRARIES :=       \
     libbinder                   \
@@ -54,11 +64,26 @@ LOCAL_SHARED_LIBRARIES :=       \
     libstagefright_omx          \
     libstagefright_wfd          \
     libutils                    \
-    libvorbisidec               \
+    libvorbisidec               
+
+ifeq ($(TARGET_BOARD_PLATFORM), fiber)
+LOCAL_SHARED_LIBRARIES +=       \
+    libCedarX           	    \
+    libCedarA           	    \
+    libcedarxbase               \
+    libcedarxosal               \
+    libcedarv                   \
+    libui
+endif
 
 LOCAL_STATIC_LIBRARIES :=       \
     libstagefright_nuplayer     \
-    libstagefright_rtsp         \
+    libstagefright_rtsp         
+
+ifeq ($(TARGET_BOARD_PLATFORM), fiber)
+LOCAL_STATIC_LIBRARIES +=       \
+    librotation
+endif
 
 LOCAL_C_INCLUDES :=                                                 \
     $(call include-path-for, graphics corecg)                       \
@@ -66,7 +91,21 @@ LOCAL_C_INCLUDES :=                                                 \
     $(TOP)/frameworks/av/media/libstagefright/rtsp                  \
     $(TOP)/frameworks/av/media/libstagefright/wifi-display          \
     $(TOP)/frameworks/native/include/media/openmax                  \
-    $(TOP)/external/tremolo/Tremolo                                 \
+    $(TOP)/external/tremolo/Tremolo                                 
+
+ifeq ($(TARGET_BOARD_PLATFORM), fiber)
+LOCAL_C_INCLUDES +=             \
+    $(TOP)/frameworks/av/media/CedarX-Projects/CedarXAndroid \
+	$(TOP)/frameworks/av/media/CedarX-Projects/CedarX/include/include_audio \
+	$(TOP)/frameworks/av/media/CedarX-Projects/CedarX/include/include_cedarv \
+	$(TOP)/frameworks/av/media/CedarX-Projects/CedarX/include \
+	$(TOP)/frameworks/av/media/CedarX-Projects/CedarA \
+	$(TOP)/frameworks/av/media/CedarX-Projects/CedarA/include
+endif
+
+ifeq ($(TARGET_BOARD_PLATFORM), fiber)
+LOCAL_CFLAGS +=-DTARGET_BOARD_FIBER
+endif
 
 LOCAL_MODULE:= libmediaplayerservice
 

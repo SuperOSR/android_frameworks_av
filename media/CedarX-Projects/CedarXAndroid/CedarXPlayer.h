@@ -20,14 +20,10 @@
 
 #include <media/MediaPlayerInterface.h>
 #include <media/stagefright/DataSource.h>
-//#include <media/stagefright/OMXClient.h>
 #include <media/stagefright/TimeSource.h>
 #include <utils/threads.h>
-//#include <hardware/hwcomposer.h>
-//#include "CedarXNativeRenderer.h"
 #include <media/stagefright/CedarXAudioPlayer.h>
 #include <media/stagefright/MediaBuffer.h>
-//#include <media/stagefright/MediaClock.h>
 #include <media/mediaplayerinfo.h>
 
 #include <CDX_PlayerAPI.h>
@@ -232,10 +228,8 @@ struct CedarXPlayer { //don't touch this struct any more, you can extend members
 
     void postAudioEOS();
     void postAudioSeekComplete();
-#if (CEDARX_ANDROID_VERSION >= 7)
     //added by weihongqiang.
     status_t invoke(const Parcel &request, Parcel *reply);
-#endif
 
     int CedarXPlayerCallback(int event, void *info);
 
@@ -435,13 +429,11 @@ private:
     int StagefrightAudioRenderGetDelay(void);
     int StagefrightAudioRenderFlushCache(void);
     int StagefrightAudioRenderPause(void);
-#if (CEDARX_ANDROID_VERSION >= 7)
     //add by weihongqiang
     status_t selectTrack(size_t trackIndex, bool select);
     status_t getTrackInfo(Parcel *reply) const;
     size_t countTracks() const;
     uint8_t mCurrentSubTrack;
-#endif
     status_t setDataSource_pre();
     status_t setDataSource_post();
     status_t setVideoScalingMode(int32_t mode);

@@ -23,11 +23,7 @@
 #include <media/stagefright/ColorConverter.h>
 #include <media/stagefright/DataSource.h>
 #include <media/stagefright/FileSource.h>
-#if (CEDARX_ANDROID_VERSION < 7)
-#include <media/stagefright/MediaDebug.h>
-#else
 #include <media/stagefright/foundation/ADebug.h>
-#endif
 #include <media/stagefright/MediaExtractor.h>
 #include <media/stagefright/MetaData.h>
 #include <media/stagefright/OMXCodec.h>
@@ -61,7 +57,7 @@ CedarXMetadataRetriever::~CedarXMetadataRetriever()
     if(bCDXMetaRetriverInit)
     {
     	LOGV("CDXRetriever_Destroy called!");
-        CDXRetriever_Destroy(mRetriever);
+        //CDXRetriever_Destroy(mRetriever);
         bCDXMetaRetriverInit = false;
     }
 
@@ -85,7 +81,7 @@ status_t CedarXMetadataRetriever::setDataSource(const char *url, const KeyedVect
     	delete mAlbumArt;
     	mAlbumArt = NULL;
     }
-
+/*
     //ALOGV("set data source step 2.");
     if(!bCDXMetaRetriverInit)
     {
@@ -94,7 +90,7 @@ status_t CedarXMetadataRetriever::setDataSource(const char *url, const KeyedVect
 
     	bCDXMetaRetriverInit = true;
     }
-
+*/
     //ALOGV("set data source step 3.");
     if(mRetriever->control(mRetriever, CDX_SET_DATASOURCE_URL, (unsigned int)url, 0) != 0)
        	return UNKNOWN_ERROR;
@@ -120,7 +116,7 @@ status_t CedarXMetadataRetriever::setDataSource(int fd, int64_t offset, int64_t 
     	delete mAlbumArt;
     	mAlbumArt = NULL;
     }
-
+/*
     if(!bCDXMetaRetriverInit)
     {
     	if(CDXRetriever_Create((void**)&mRetriever) != 0)
@@ -128,7 +124,7 @@ status_t CedarXMetadataRetriever::setDataSource(int fd, int64_t offset, int64_t 
 
     	bCDXMetaRetriverInit = true;
     }
-
+*/
     CedarXExternFdDesc cdx_ext_fd;
     cdx_ext_fd.fd     = fd;
     cdx_ext_fd.offset = offset;
@@ -153,7 +149,7 @@ status_t CedarXMetadataRetriever::setDataSource(int fd, int64_t offset, int64_t 
     	delete mAlbumArt;
     	mAlbumArt = NULL;
     }
-
+/*
     if(!bCDXMetaRetriverInit)
     {
     	if(CDXRetriever_Create((void**)&mRetriever) != 0)
@@ -161,7 +157,7 @@ status_t CedarXMetadataRetriever::setDataSource(int fd, int64_t offset, int64_t 
 
     	bCDXMetaRetriverInit = true;
     }
-
+*/
     CedarXExternFdDesc cdx_ext_fd;
     cdx_ext_fd.fd     = fd;
     cdx_ext_fd.offset = offset;
@@ -441,11 +437,9 @@ void CedarXMetadataRetriever::parseMetaData()
 			LOGV("METADATA_KEY_VIDEO_HEIGHT:%d", cdx_metadata.height);
 			mMetaData.add(METADATA_KEY_VIDEO_HEIGHT, String8(str));
             
-        #if (CEDARX_ANDROID_VERSION > 7)
 			sprintf(str, "%d", cdx_metadata.nRotationAngle);
 			LOGV("METADATA_KEY_VIDEO_ROTATION:%d", cdx_metadata.nRotationAngle);
 			mMetaData.add(METADATA_KEY_VIDEO_ROTATION, String8(str));  
-        #endif
         
 		}
 

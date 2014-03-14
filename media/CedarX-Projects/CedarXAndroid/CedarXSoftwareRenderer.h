@@ -19,11 +19,9 @@
 #define SOFTWARE_RENDERER_H_
 
 #include <utils/RefBase.h>
-#if (CEDARX_ANDROID_VERSION < 7)
-#include <ui/android_native_buffer.h>
-#endif
 #include <hardware/hwcomposer.h>
-#include "virtual_hwcomposer.h"
+#include <CDX_PlayerAPI.h>
+#include <libcedarv.h>
 
 #define ADAPT_A10_GPU_RENDER (1)
 #define ADAPT_A31_GPU_RENDER (1)
